@@ -3998,7 +3998,7 @@ int __init drbd_init(void)
 	err = drbd_nl_init();
 	if (err)
 		return err;
-
+	/* ブロックデバイスの登録 */
 	err = register_blkdev(DRBD_MAJOR, "drbd");
 	if (err) {
 		printk(KERN_ERR
@@ -4006,12 +4006,13 @@ int __init drbd_init(void)
 		       DRBD_MAJOR);
 		return err;
 	}
-
+	/* ドライバ終了処理ルーチンを登録 */
 	register_reboot_notifier(&drbd_notifier);
 
 	/*
 	 * allocate all necessary structs
 	 */
+	 /* drbd_pp_waitキューの生成 */
 	init_waitqueue_head(&drbd_pp_wait);
 
 	drbd_proc = NULL; /* play safe for drbd_cleanup */
@@ -4019,13 +4020,13 @@ int __init drbd_init(void)
 	err = drbd_create_mempools();
 	if (err)
 		goto Enomem;
-
+	/* minor_table確保 */
 	err = -ENOMEM;
 	minor_table = kzalloc(sizeof(struct drbd_conf *)*minor_count,
 				GFP_KERNEL);
 	if (!minor_table)
 		goto Enomem;
-
+	/* /proc/drbdインターフェースを生成 */
 	drbd_proc = proc_create_data("drbd", S_IFREG | S_IRUGO , NULL, &drbd_proc_fops, NULL);
 	if (!drbd_proc)	{
 		printk(KERN_ERR "drbd: unable to register proc file\n");
