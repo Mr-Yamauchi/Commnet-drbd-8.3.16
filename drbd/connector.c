@@ -125,7 +125,7 @@ int cn_netlink_send(struct cn_msg *msg, u32 __group, gfp_t gfp_mask)
 	memcpy(data, msg, sizeof(*data) + msg->len);
 
 	NETLINK_GROUP(skb) = group;
-
+	/* NETLINKメッセージ応答を送信 */
 	netlink_broadcast(dev->nls, skb, 0, group, gfp_mask);
 
 	return 0;
@@ -259,10 +259,11 @@ out:
  * Netlink socket input callback - dequeues the skbs and calls the
  * main netlink receiving function.
  */
+/* NETLINK受信コールバック */
 static void cn_input(struct sock *sk, int len)
 {
 	struct sk_buff *skb;
-
+	/* skb_dequeue. キューの 先頭からソケットバッファを抜く */
 	while ((skb = skb_dequeue(&sk->sk_receive_queue)) != NULL)
 		cn_rx_skb(skb);
 }
@@ -453,13 +454,13 @@ static void cn_callback(void *data)
 	list_add(&ent->notify_entry, &notify_list);
 	up(&notify_lock);
 }
-
+/* Connector(NETLINK)初期化 */
 int __init cn_init(void)
 {
 	struct cn_dev *dev = &cdev;
 	int err;
 
-	dev->input = cn_input;
+	dev->input = cn_input;	/* NETLINK受信処理コールバック情報セット */
 	dev->id.idx = cn_idx;
 	dev->id.val = cn_val;
 
@@ -471,8 +472,10 @@ int __init cn_init(void)
 	 * so it is not exactly correct to trigger on the rename dst_groups to dst_group,
 	 * but sufficiently close.
 	 */
+	/* NETLINK受信コールバックセット */
 	dev->nls = netlink_kernel_create(NETLINK_CONNECTOR,dev->input);
 #else
+	/* NETLINK受信コールバックセット */
 	dev->nls = netlink_kernel_create(NETLINK_CONNECTOR,
 					 CN_NETLINK_USERS + 0xf,
 					 dev->input, THIS_MODULE);

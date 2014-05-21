@@ -3994,7 +3994,7 @@ int __init drbd_init(void)
 		minor_count = 8;
 #endif
 	}
-
+	/* NETLINKˆ—‚Ì‰Šú‰» */
 	err = drbd_nl_init();
 	if (err)
 		return err;
@@ -4016,7 +4016,7 @@ int __init drbd_init(void)
 	init_waitqueue_head(&drbd_pp_wait);
 
 	drbd_proc = NULL; /* play safe for drbd_cleanup */
-
+	/* mempool‚Ì¶¬ */
 	err = drbd_create_mempools();
 	if (err)
 		goto Enomem;

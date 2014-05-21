@@ -2729,7 +2729,7 @@ typedef int (*cn_add_callback_void_fn)(struct cb_id *, char *,
 #ifndef __same_type
 # define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 #endif
-
+/* NETLINKˆ—‚Ì‰Šú‰» */
 int __init drbd_nl_init(void)
 {
 	static struct cb_id cn_id_drbd;
