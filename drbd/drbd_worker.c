@@ -1743,7 +1743,7 @@ void drbd_start_resync(struct drbd_conf *mdev, enum drbd_conns side)
 	put_ldev(mdev);
 	drbd_state_unlock(mdev);
 }
-
+/* workerスレッドの起動処理 */
 int drbd_worker(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;

@@ -445,7 +445,7 @@ drbd_set_role(struct drbd_conf *mdev, enum drbd_role new_role, int force)
 	mutex_unlock(&mdev->state_mutex);
 	return rv;
 }
-
+/* デバイスの生成状態を確認して、未生成なら生成する */
 STATIC struct drbd_conf *ensure_mdev(int minor, int create)
 {
 	struct drbd_conf *mdev;
@@ -457,6 +457,7 @@ STATIC struct drbd_conf *ensure_mdev(int minor, int create)
 
 	if (!mdev && create) {
 		struct gendisk *disk = NULL;
+		/* デバイスを生成する */
 		mdev = drbd_new_device(minor);
 
 		spin_lock_irq(&drbd_pp_lock);
@@ -493,6 +494,7 @@ STATIC int drbd_nl_primary(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	struct primary primary_args;
 
 	memset(&primary_args, 0, sizeof(struct primary));
+	/* 実態はgenerateされた _from_tags */
 	if (!primary_from_tags(mdev, nlp->tag_list, &primary_args)) {
 		reply->ret_code = ERR_MANDATORY_TAG;
 		return 0;
@@ -770,6 +772,7 @@ STATIC int drbd_check_al_size(struct drbd_conf *mdev)
 
 	in_use = 0;
 	t = mdev->act_log;
+	/* ???とりあえず無視 */
 	n = lc_create("act_log", drbd_al_ext_cache,
 		mdev->sync_conf.al_extents, sizeof(struct lc_element), 0);
 
@@ -887,7 +890,7 @@ static void drbd_reconfig_start(struct drbd_conf *mdev)
 {
 	wait_event(mdev->state_wait, !drbd_test_and_set_flag(mdev, CONFIG_PENDING));
 	wait_event(mdev->state_wait, !drbd_test_flag(mdev, DEVICE_DYING));
-	drbd_thread_start(&mdev->worker);
+	drbd_thread_start(&mdev->worker);	/* workerスレッドの起動 */
 	drbd_flush_workqueue(mdev);
 }
 
@@ -947,7 +950,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 	enum drbd_state_rv rv;
 	int cp_discovered = 0;
 	int logical_block_size;
-
+	/* reconfig開始-workerスレッドの起動 */
 	drbd_reconfig_start(mdev);
 
 	/* if you want to reconfigure, please tear down first */
@@ -984,7 +987,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 	nbc->dc.max_bio_bvecs = DRBD_MAX_BIO_BVECS_DEF;
 
 	spin_lock_init(&nbc->md.uuid_lock);
-
+	/* 実態はgenerateされた _from_tags */
 	if (!disk_conf_from_tags(mdev, nlp->tag_list, &nbc->dc)) {
 		retcode = ERR_MANDATORY_TAG;
 		goto fail;
@@ -1003,7 +1006,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 			goto fail;
 		}
 	}
-
+	/* リソースのdiskオープン */
 	bdev = blkdev_get_by_path(nbc->dc.backing_dev,
 				  FMODE_READ | FMODE_WRITE | FMODE_EXCL, mdev);
 	if (IS_ERR(bdev)) {
@@ -1012,7 +1015,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 		retcode = ERR_OPEN_DISK;
 		goto fail;
 	}
-	nbc->backing_bdev = bdev;
+	nbc->backing_bdev = bdev;	/* backing_bdev(disk)デバイス情報をセット */
 
 	/*
 	 * meta_dev_idx >= 0: external fixed size, possibly multiple
@@ -1022,6 +1025,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 	 * should check it for you already; but if you don't, or
 	 * someone fooled it, we need to double check here)
 	 */
+	/* リソースのmeta-diskオープン(internalの場合は、diskと同じ) */
 	bdev = blkdev_get_by_path(nbc->dc.meta_dev,
 				  FMODE_READ | FMODE_WRITE | FMODE_EXCL,
 				  (nbc->dc.meta_dev_idx < 0) ?
@@ -1032,15 +1036,16 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 		retcode = ERR_OPEN_MD_DISK;
 		goto fail;
 	}
-	nbc->md_bdev = bdev;
+	nbc->md_bdev = bdev;		/* md_bdev(meta-disk)デバイス情報をセット */
 
 	if ((nbc->backing_bdev == nbc->md_bdev) !=
 	    (nbc->dc.meta_dev_idx == DRBD_MD_INDEX_INTERNAL ||
 	     nbc->dc.meta_dev_idx == DRBD_MD_INDEX_FLEX_INT)) {
+		/* intenalメタデータなのに不正がある場合はエラー */
 		retcode = ERR_MD_IDX_INVALID;
 		goto fail;
 	}
-
+	/* ???とりあえず無視 */
 	resync_lru = lc_create("resync", drbd_bm_ext_cache,
 			61, sizeof(struct bm_extent),
 			offsetof(struct bm_extent, lce));
@@ -1370,7 +1375,7 @@ STATIC int drbd_nl_detach(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	enum drbd_ret_code retcode;
 	int ret;
 	struct detach dt = {};
-
+	/* 実態はgenerateされた _from_tags */
 	if (!detach_from_tags(mdev, nlp->tag_list, &dt)) {
 		reply->ret_code = ERR_MANDATORY_TAG;
 		goto out;
@@ -1418,7 +1423,7 @@ STATIC int drbd_nl_net_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	void *int_dig_in = NULL;
 	void *int_dig_vv = NULL;
 	struct sockaddr *new_my_addr, *new_peer_addr, *taken_addr;
-
+	/* reconfig開始-workerスレッドの起動 */
 	drbd_reconfig_start(mdev);
 
 	if (mdev->state.conn > C_STANDALONE) {
@@ -1452,7 +1457,7 @@ STATIC int drbd_nl_net_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	new_conf->rr_conflict	   = DRBD_RR_CONFLICT_DEF;
 	new_conf->on_congestion    = DRBD_ON_CONGESTION_DEF;
 	new_conf->cong_extents     = DRBD_CONG_EXTENTS_DEF;
-
+	/* 実態はgenerateされた _from_tags */
 	if (!net_conf_from_tags(mdev, nlp->tag_list, new_conf)) {
 		retcode = ERR_MANDATORY_TAG;
 		goto fail;
@@ -1686,6 +1691,7 @@ STATIC int drbd_nl_disconnect(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nl
 	struct disconnect dc;
 
 	memset(&dc, 0, sizeof(struct disconnect));
+	/* 実態はgenerateされた _from_tags */
 	if (!disconnect_from_tags(mdev, nlp->tag_list, &dc)) {
 		retcode = ERR_MANDATORY_TAG;
 		goto fail;
@@ -1764,6 +1770,7 @@ STATIC int drbd_nl_resize(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	enum dds_flags ddsf;
 
 	memset(&rs, 0, sizeof(struct resize));
+	/* 実態はgenerateされた _from_tags */
 	if (!resize_from_tags(mdev, nlp->tag_list, &rs)) {
 		retcode = ERR_MANDATORY_TAG;
 		goto fail;
@@ -1852,7 +1859,7 @@ STATIC int drbd_nl_syncer_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *n
 		sc.c_min_rate = DRBD_C_MIN_RATE_DEF;
 	} else
 		memcpy(&sc, &mdev->sync_conf, sizeof(struct syncer_conf));
-
+	/* 実態はgenerateされた _from_tags */
 	if (!syncer_conf_from_tags(mdev, nlp->tag_list, &sc)) {
 		retcode = ERR_MANDATORY_TAG;
 		goto fail;
@@ -1931,6 +1938,7 @@ STATIC int drbd_nl_syncer_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *n
 	 * the minors they depend on: if necessary, first create the minor we
 	 * depend on */
 	if (sc.after >= 0)
+		/* デバイスの生成状態を確認して、未生成なら生成する */
 		ensure_mdev(sc.after, 1);
 
 	/* most sanity checks done, try to assign the new sync-after
@@ -2252,7 +2260,7 @@ STATIC int drbd_nl_start_ov(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 		.start_sector = mdev->ov_start_sector,
 		.stop_sector = ULLONG_MAX,
 	};
-
+	/* 実態はgenerateされた _from_tags */
 	if (!start_ov_from_tags(mdev, nlp->tag_list, &args)) {
 		reply->ret_code = ERR_MANDATORY_TAG;
 		return 0;
@@ -2282,6 +2290,7 @@ STATIC int drbd_nl_new_c_uuid(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nl
 	struct new_c_uuid args;
 
 	memset(&args, 0, sizeof(struct new_c_uuid));
+	/* 実態はgenerateされた _from_tags */
 	if (!new_c_uuid_from_tags(mdev, nlp->tag_list, &args)) {
 		reply->ret_code = ERR_MANDATORY_TAG;
 		return 0;
@@ -2341,7 +2350,7 @@ struct cn_handler_struct {
 			 struct drbd_nl_cfg_reply *);
 	int reply_body_size;
 };
-
+/* NETLINK受信コマンドテーブル */
 static struct cn_handler_struct cnd_table[] = {
 	[ P_primary ]		= { &drbd_nl_primary,		0 },
 	[ P_secondary ]		= { &drbd_nl_secondary,		0 },
@@ -2372,7 +2381,7 @@ static struct cn_handler_struct cnd_table[] = {
 	[ P_start_ov ]		= { &drbd_nl_start_ov,		0 },
 	[ P_new_c_uuid ]	= { &drbd_nl_new_c_uuid,	0 },
 };
-
+/* INETLINKコールバック */
 #ifdef KERNEL_HAS_CN_SKB_PARMS
 STATIC void drbd_connector_callback(struct cn_msg *req, struct netlink_skb_parms *nsp)
 {
@@ -2409,7 +2418,7 @@ STATIC void drbd_connector_callback(void *data)
 	}
 # endif
 #endif
-
+	/* デバイスの生成状態を確認して、未生成なら生成する */
 	mdev = ensure_mdev(nlp->drbd_minor,
 			(nlp->flags & DRBD_NL_CREATE_DEVICE));
 	if (!mdev) {
@@ -2424,7 +2433,7 @@ STATIC void drbd_connector_callback(void *data)
 		retcode = ERR_PACKET_NR;
 		goto fail;
 	}
-
+	/* NETLINK処理のポインタセット */
 	cm = cnd_table + nlp->packet_type;
 
 	/* This may happen if packet number is 0: */
@@ -2434,7 +2443,7 @@ STATIC void drbd_connector_callback(void *data)
 	}
 
 	reply_size += cm->reply_body_size;
-
+	/* 応答メッセージ領域の確保 */
 	/* allocation not in the IO path, cqueue thread context */
 	cn_reply = kzalloc(reply_size, GFP_KERNEL);
 	if (!cn_reply) {
@@ -2448,7 +2457,7 @@ STATIC void drbd_connector_callback(void *data)
 	reply->minor = nlp->drbd_minor;
 	reply->ret_code = NO_ERROR; /* Might by modified by cm->function. */
 	/* reply->tag_list; might be modified by cm->function. */
-
+	/* NETLINK処理の実行 */
 	rr = cm->function(mdev, nlp, reply);
 
 	cn_reply->id = req->id;
@@ -2458,6 +2467,7 @@ STATIC void drbd_connector_callback(void *data)
 	cn_reply->flags = 0;
 
 	trace_drbd_netlink(cn_reply, 0);
+	/* 応答を送信(これもKernel APIのはずで、connector.cは利用されていない */
 	rr = cn_netlink_send(cn_reply, CN_IDX_DRBD, GFP_KERNEL);
 	if (rr && rr != -ESRCH)
 		printk(KERN_INFO "drbd: cn_netlink_send()=%d\n", rr);
@@ -2756,6 +2766,8 @@ int __init drbd_nl_init(void)
 			__same_type(&cn_add_callback, cn_add_callback_req_fn) ||
 			__same_type(&cn_add_callback, cn_add_callback_void_fn)));
 #endif
+		/* RHEL6.4の場合、connector.c/cn_queue.cは導入されない */
+		/* cn_add_callbackはKernel LIB(?といっていいのか？)が利用されてINETLINKからの受信コールバックを登録している */
 		err = cn_add_callback(&cn_id_drbd, "cn_drbd", &drbd_connector_callback);
 		if (!err)
 			break;

@@ -1111,8 +1111,8 @@ struct drbd_md {
 
 struct drbd_backing_dev {
 	struct kobject kobject;
-	struct block_device *backing_bdev;
-	struct block_device *md_bdev;
+	struct block_device *backing_bdev;	/* リソースのdiskのデバイス情報 */
+	struct block_device *md_bdev;		/* リソースのmeta-diskのデバイス情報(internalならbacking_bdevと同じ) */
 	struct drbd_md md;
 	struct disk_conf dc; /* The user provided config... */
 	sector_t known_size; /* last known size of that backing device */

@@ -992,7 +992,7 @@ retry:
 		return 0;
 
 	atomic_set(&mdev->ap_in_flight, 0);
-	drbd_thread_start(&mdev->asender);
+	drbd_thread_start(&mdev->asender);	/* asenderスレッドの起動 */
 	mod_timer(&mdev->request_timer, jiffies + HZ); /* just start it here. */
 
 	return 1;
@@ -4541,7 +4541,7 @@ STATIC int drbd_do_auth(struct drbd_conf *mdev)
 	return rv;
 }
 #endif
-
+/* receiverスレッドの起動処理 */
 int drbdd_init(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;
@@ -4912,7 +4912,7 @@ static struct asender_cmd *get_asender_cmd(int cmd)
 		return NULL;
 	return &asender_tbl[cmd];
 }
-
+/* asenderスレッドの起動処理 */
 int drbd_asender(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;

@@ -1882,7 +1882,7 @@ STATIC void after_state_ch(struct drbd_conf *mdev, union drbd_state os,
 
 	/* Upon network connection, we need to start the receiver */
 	if (os.conn == C_STANDALONE && ns.conn == C_UNCONNECTED)
-		drbd_thread_start(&mdev->receiver);
+		drbd_thread_start(&mdev->receiver);	/* receiverスレッドの起動 */
 
 	/* Terminate worker thread if we are unconfigured - it will be
 	   restarted as needed... */
@@ -1986,7 +1986,7 @@ int drbd_thread_start(struct drbd_thread *thi)
 		thi->t_state = Running;
 		spin_unlock_irqrestore(&thi->t_lock, flags);
 		flush_signals(current); /* otherw. may get -ERESTARTNOINTR */
-
+		/* 対象スレッドの生成 */
 		nt = kthread_create(drbd_thread_setup, (void *) thi,
 				    "drbd%d_%s", mdev_to_minor(mdev), me);
 
@@ -2000,6 +2000,7 @@ int drbd_thread_start(struct drbd_thread *thi)
 		thi->task = nt;
 		thi->t_state = Running;
 		spin_unlock_irqrestore(&thi->t_lock, flags);
+		/* 対象スレッドの起床 */
 		wake_up_process(nt);
 		break;
 	case Exiting:
@@ -2030,7 +2031,7 @@ void _drbd_thread_stop(struct drbd_thread *thi, int restart, int wait)
 	if (thi->t_state == None) {
 		spin_unlock_irqrestore(&thi->t_lock, flags);
 		if (restart)
-			drbd_thread_start(thi);
+			drbd_thread_start(thi);	/* スレッドの起動 */
 		return;
 	}
 
@@ -3339,7 +3340,7 @@ STATIC void drbd_unplug_fn(struct request_queue *q)
 		drbd_kick_lo(mdev);
 }
 #endif
-
+/* sync_conf,stateの初期化 */
 STATIC void drbd_set_defaults(struct drbd_conf *mdev)
 {
 	/* This way we get a compile error when sync_conf grows,
@@ -3373,7 +3374,7 @@ STATIC void drbd_set_defaults(struct drbd_conf *mdev)
 		  .susp_fen = 0
 		} };
 }
-
+/* DRBDデフォルトセット処理 */
 void drbd_init_set_defaults(struct drbd_conf *mdev)
 {
 	/* the memset(,0,) did most of this.
@@ -3382,9 +3383,9 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 #ifdef PARANOIA
 	SET_MDEV_MAGIC(mdev);
 #endif
-
+	/* sync_conf,stateの初期化 */
 	drbd_set_defaults(mdev);
-
+	/* ATOMIC変数の初期化 */
 	atomic_set(&mdev->ap_bio_cnt, 0);
 	atomic_set(&mdev->ap_pending_cnt, 0);
 	atomic_set(&mdev->rs_pending_cnt, 0);
@@ -3434,10 +3435,12 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 	mdev->md_sync_work.cb = w_md_sync;
 	mdev->bm_io_work.w.cb = w_bitmap_io;
 	mdev->start_resync_work.cb = w_start_resync;
+	/* タイマー初期化 */
 	init_timer(&mdev->resync_timer);
 	init_timer(&mdev->md_sync_timer);
 	init_timer(&mdev->start_resync_timer);
 	init_timer(&mdev->request_timer);
+	/* タイマーファンクション・データの初期化 */
 	mdev->resync_timer.function = resync_timer_fn;
 	mdev->resync_timer.data = (unsigned long) mdev;
 	mdev->md_sync_timer.function = md_sync_timer_fn;
@@ -3453,7 +3456,7 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 	init_waitqueue_head(&mdev->ee_wait);
 	init_waitqueue_head(&mdev->al_wait);
 	init_waitqueue_head(&mdev->seq_wait);
-
+	/* スレッド初期化 */
 	drbd_thread_init(mdev, &mdev->receiver, drbdd_init);
 	drbd_thread_init(mdev, &mdev->worker, drbd_worker);
 	drbd_thread_init(mdev, &mdev->asender, drbd_asender);
@@ -3762,7 +3765,7 @@ static void drbd_delete_device(unsigned int minor)
 	 * and actually free the mdev itself */
 	drbd_free_mdev(mdev);
 }
-
+/* カーネルモジュール終了、エラー終了時のクリーンアップ処理 */
 STATIC void drbd_cleanup(void)
 {
 	unsigned int i;
@@ -3850,7 +3853,7 @@ out:
 	mdev->congestion_reason = reason;
 	return r;
 }
-
+/* デバイスを生成する */
 struct drbd_conf *drbd_new_device(unsigned int minor)
 {
 	struct drbd_conf *mdev;
@@ -3865,26 +3868,28 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 		goto out_no_cpumask;
 
 	mdev->minor = minor;
-
+	/* DRBDデフォルトセット処理 */
 	drbd_init_set_defaults(mdev);
-
+	/* ブロックデバイスキューの確保(?) */
 	q = blk_alloc_queue(GFP_KERNEL);
 	if (!q)
 		goto out_no_q;
 	mdev->rq_queue = q;
 	q->queuedata   = mdev;
-
+	/* 仮想的なディスクの作成 */
 	disk = alloc_disk(1);
 	if (!disk)
 		goto out_no_disk;
 	mdev->vdisk = disk;
 
 	set_disk_ro(disk, true);
-
+	/* キューとブロックデバイスを結びつける */
 	disk->queue = q;
 	disk->major = DRBD_MAJOR;
 	disk->first_minor = minor;
+	/* ディスクをオープンしたときなどに呼び出されるコールバックをセット */
 	disk->fops = &drbd_ops;
+	/* スペシャルファイル名( /dev/drbdXX ) */
 	sprintf(disk->disk_name, "drbd%d", minor);
 	disk->private_data = mdev;
 
@@ -3973,7 +3978,7 @@ void drbd_free_mdev(struct drbd_conf *mdev)
 	kfree(mdev);
 }
 
-
+/* カーネルモジュール組み込み処理 */
 int __init drbd_init(void)
 {
 	int err;
@@ -4046,7 +4051,7 @@ int __init drbd_init(void)
 	return 0; /* Success! */
 
 Enomem:
-	drbd_cleanup();
+	drbd_cleanup(); 	/* カーネルモジュール終了、エラー終了時のクリーンアップ処理 */
 	if (err == -ENOMEM)
 		/* currently always the case */
 		printk(KERN_ERR "drbd: ran out of memory\n");
@@ -4704,8 +4709,8 @@ _drbd_insert_fault(struct drbd_conf *mdev, unsigned int type)
 }
 #endif
 
-module_init(drbd_init)
-module_exit(drbd_cleanup)
+module_init(drbd_init)		/* カーネルモジュール組み込み処理 */
+module_exit(drbd_cleanup)	/* カーネルモジュール終了、エラー終了時のクリーンアップ処理 */
 
 /* For drbd_tracing: */
 EXPORT_SYMBOL(drbd_conn_str);
