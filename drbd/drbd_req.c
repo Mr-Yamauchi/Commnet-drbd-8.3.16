@@ -1200,7 +1200,7 @@ static int drbd_fail_request_early(struct drbd_conf *mdev, int is_write)
 
 	return 0;
 }
-
+/* requestキュー(bio)処理 */
 MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 {
 	unsigned int s_enr, e_enr;
@@ -1217,6 +1217,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	 * we have REQ_FUA and REQ_FLUSH, which will be handled transparently
 	 * by the block layer. */
 	if (unlikely(bio->bi_rw & DRBD_REQ_HARDBARRIER)) {
+		/* bioのRW情報にDRBD_REQ_HARDBARRIERが設定されている場合はbio_endioをコールして抜ける */
 		bio_endio(bio, -EOPNOTSUPP);
 		MAKE_REQUEST_RETURN;
 	}

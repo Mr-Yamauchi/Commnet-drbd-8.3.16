@@ -3899,7 +3899,8 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 
 	q->backing_dev_info.congested_fn = drbd_congested;
 	q->backing_dev_info.congested_data = mdev;
-
+	/* requestキューのbio取り出しコールバックをセット */
+	/* このセットがないと、__make_request()というデフォルトのコールバックが呼ばれる */
 	blk_queue_make_request(q, drbd_make_request);
 #ifdef REQ_FLUSH
 	blk_queue_flush(q, REQ_FLUSH | REQ_FUA);
