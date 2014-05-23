@@ -870,8 +870,8 @@ STATIC void maybe_pull_ahead(struct drbd_conf *mdev)
 
 STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, unsigned long start_time)
 {
-	const int rw = bio_rw(bio);
-	const int is_flush = (bio->bi_rw & DRBD_REQ_FLUSH);
+	const int rw = bio_rw(bio); /* bioのREAD or WRITE 取り出しマクロ*/
+	const int is_flush = (bio->bi_rw & DRBD_REQ_FLUSH);	
 	const int size = bio->bi_size;
 	const sector_t sector = bio->bi_sector;
 	struct drbd_tl_epoch *b = NULL;
@@ -900,7 +900,7 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 		bio_put(req->private_bio); /* or we get a bio leak */
 		req->private_bio = NULL;
 	}
-	if (rw == WRITE) {
+	if (rw == WRITE) {	/* WRITE要求の場合 */
 		/* Need to replicate writes.  Unless it is an empty flush,
 		 * which is better mapped to a DRBD P_BARRIER packet,
 		 * also for drbd wire protocol compatibility reasons. */
@@ -908,7 +908,7 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 			/* The only size==0 bios we expect are empty flushes. */
 			D_ASSERT(is_flush);
 		remote = 1;
-	} else {
+	} else {			/* READ要求の場合 */
 		/* READ || READA */
 		if (local) {
 			if (!drbd_may_do_local_read(mdev, sector, size)) {
@@ -1221,7 +1221,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 		bio_endio(bio, -EOPNOTSUPP);
 		MAKE_REQUEST_RETURN;
 	}
-
+	/* 開始にシステムが起動してからの総タイマー割り込み回数をセット */
 	start_time = jiffies;
 
 	/*

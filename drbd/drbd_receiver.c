@@ -221,7 +221,7 @@ static struct page *drbd_pp_first_pages_or_try_alloc(struct drbd_conf *mdev, int
 static void maybe_kick_lo(struct drbd_conf *mdev)
 {
 	if (atomic_read(&mdev->local_cnt) >= mdev->net_conf->unplug_watermark)
-		drbd_kick_lo(mdev);
+		drbd_kick_lo(mdev);	/* アンプラグ処理の実行 */
 }
 
 static void reclaim_net_ee(struct drbd_conf *mdev, struct list_head *to_be_freed)
@@ -247,7 +247,7 @@ static void drbd_kick_lo_and_reclaim_net(struct drbd_conf *mdev)
 	LIST_HEAD(reclaimed);
 	struct drbd_epoch_entry *e, *t;
 
-	maybe_kick_lo(mdev);
+	maybe_kick_lo(mdev);				/* アンプラグ処理の実行 */
 	spin_lock_irq(&mdev->req_lock);
 	reclaim_net_ee(mdev, &reclaimed);
 	spin_unlock_irq(&mdev->req_lock);
@@ -288,7 +288,7 @@ STATIC struct page *drbd_pp_alloc(struct drbd_conf *mdev, unsigned number, bool 
 	while (page == NULL) {
 		prepare_to_wait(&drbd_pp_wait, &wait, TASK_INTERRUPTIBLE);
 
-		drbd_kick_lo_and_reclaim_net(mdev);
+		drbd_kick_lo_and_reclaim_net(mdev);	/* アンプラグ処理の実行 */
 
 		if (atomic_read(&mdev->pp_in_use) < max_buffers) {
 			page = drbd_pp_first_pages_or_try_alloc(mdev, number);
@@ -480,7 +480,7 @@ void _drbd_wait_ee_list_empty(struct drbd_conf *mdev, struct list_head *head)
 	while (!list_empty(head)) {
 		prepare_to_wait(&mdev->ee_wait, &wait, TASK_UNINTERRUPTIBLE);
 		spin_unlock_irq(&mdev->req_lock);
-		drbd_kick_lo(mdev);
+		drbd_kick_lo(mdev);			/* アンプラグ処理の実行 */
 		schedule();
 		finish_wait(&mdev->ee_wait, &wait);
 		spin_lock_irq(&mdev->req_lock);
@@ -1399,7 +1399,7 @@ STATIC int receive_Barrier(struct drbd_conf *mdev, enum drbd_packets cmd, unsign
 	inc_unacked(mdev);
 
 	if (mdev->net_conf->wire_protocol != DRBD_PROT_C)
-		drbd_kick_lo(mdev);
+		drbd_kick_lo(mdev);		/* アンプラグ処理の実行 */
 
 	mdev->current_epoch->barrier_nr = p->barrier;
 	rv = drbd_may_finish_epoch(mdev, mdev->current_epoch, EV_GOT_BARRIER_NR);
@@ -3969,7 +3969,7 @@ STATIC int receive_skip(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 STATIC int receive_UnplugRemote(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int data_size)
 {
 	if (mdev->state.disk >= D_INCONSISTENT)
-		drbd_kick_lo(mdev);
+		drbd_kick_lo(mdev);				/* アンプラグ処理の実行 */
 
 	/* Make sure we've acked all the TCP data associated
 	 * with the data requests being unplugged */

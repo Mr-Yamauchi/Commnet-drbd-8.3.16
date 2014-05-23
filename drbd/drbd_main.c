@@ -3309,6 +3309,7 @@ static int drbd_release(struct inode *inode, struct file *file)
 #endif
 
 #ifdef blk_queue_plugged
+/* アンプラグ(UNPLUG)処理-デバイスドライバ側への通知(のはず) */
 STATIC void drbd_unplug_fn(struct request_queue *q)
 {
 	struct drbd_conf *mdev = q->queuedata;
@@ -3317,7 +3318,7 @@ STATIC void drbd_unplug_fn(struct request_queue *q)
 
 	/* unplug FIRST */
 	spin_lock_irq(q->queue_lock);
-	blk_remove_plug(q);
+	blk_remove_plug(q);					/* アンプラグ(UNPLUG) */
 	spin_unlock_irq(q->queue_lock);
 
 	/* only if connected */
@@ -3913,6 +3914,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 	q->queue_lock = &mdev->req_lock; /* needed since we use */
 #ifdef blk_queue_plugged
 		/* plugging on a queue, that actually has no requests! */
+	/* アンプラグ処理のセット */
 	q->unplug_fn = drbd_unplug_fn;
 #endif
 

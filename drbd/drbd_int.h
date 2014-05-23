@@ -2753,12 +2753,13 @@ static inline int drbd_queue_order_type(struct drbd_conf *mdev)
 static inline void drbd_blk_run_queue(struct request_queue *q)
 {
 	if (q && q->unplug_fn)
-		q->unplug_fn(q);
+		q->unplug_fn(q);	/* アンプラグの実行 */
 }
 
 static inline void drbd_kick_lo(struct drbd_conf *mdev)
 {
 	if (get_ldev(mdev)) {
+		/* アンプラグ処理の実行 */
 		drbd_blk_run_queue(bdev_get_queue(mdev->ldev->backing_bdev));
 		put_ldev(mdev);
 	}
