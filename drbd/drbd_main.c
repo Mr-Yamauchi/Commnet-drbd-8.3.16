@@ -354,6 +354,7 @@ void tl_release(struct drbd_conf *mdev, unsigned int barrier_nr,
 	   These have been list_move'd to the out_of_sequence_requests list in
 	   _req_mod(, barrier_acked) above.
 	   */
+	/* 2つのリストを結合し、空になったリストを再初期化 */
 	list_splice_init(&b->requests, &mdev->barrier_acked_requests);
 
 	nob = b->next;

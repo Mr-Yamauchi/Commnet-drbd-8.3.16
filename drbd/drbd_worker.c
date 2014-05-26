@@ -1761,7 +1761,7 @@ int drbd_worker(struct drbd_thread *thi)
 			if (mdev->data.socket && !mdev->net_conf->no_cork)
 				drbd_tcp_uncork(mdev->data.socket);
 			mutex_unlock(&mdev->data.mutex);
-
+			/* 割り込み有、セマフォ待ち */
 			intr = down_interruptible(&mdev->data.work.s);
 
 			mutex_lock(&mdev->data.mutex);
@@ -1804,7 +1804,7 @@ int drbd_worker(struct drbd_thread *thi)
 		w = list_entry(mdev->data.work.q.next, struct drbd_work, list);
 		list_del_init(&w->list);
 		spin_unlock_irq(&mdev->data.work.q_lock);
-
+		/* 作業コールバックを実行する */
 		if (!w->cb(mdev, w, mdev->state.conn < C_CONNECTED)) {
 			/* dev_warn(DEV, "worker: a callback failed! \n"); */
 			if (mdev->state.conn >= C_CONNECTED)
@@ -1814,20 +1814,27 @@ int drbd_worker(struct drbd_thread *thi)
 	}
 	D_ASSERT(drbd_test_flag(mdev, DEVICE_DYING));
 	D_ASSERT(drbd_test_flag(mdev, CONFIG_PENDING));
-
+	/* ローカルCPUの割り込みを禁止した上で、変数valのロックを行う。	ロック出来ない場合は、成功するまでビジーウェイトする。	ローカルCPUの割り込みを禁止することにより、資源アクセスの
+	可能性のある割り込みがそのCPU上で発生することを抑制する */
 	spin_lock_irq(&mdev->data.work.q_lock);
 	i = 0;
 	while (!list_empty(&mdev->data.work.q)) {
+		/* 2つのリストを結合し、空になったリストを再初期化 */
 		list_splice_init(&mdev->data.work.q, &work_list);
+		/* 変数valのロック解除し、ローカルCPUの割り込み状態をflagsに示された値にする */
 		spin_unlock_irq(&mdev->data.work.q_lock);
 
-		while (!list_empty(&work_list)) {
+		while (!list_empty(&work_list)) {	/* リストが空でない間くり返す */
+			/* 先頭リストを取り出す */
 			w = list_entry(work_list.next, struct drbd_work, list);
+			/* 取り出したリストを削除する */
 			list_del_init(&w->list);
+			/* 取り出したコールバックを実行する */
 			w->cb(mdev, w, 1);
 			i++; /* dead debugging code */
 		}
-
+		/* ローカルCPUの割り込みを禁止した上で、変数valのロックを行う。	ロック出来ない場合は、成功するまでビジーウェイトする。	ローカルCPUの割り込みを禁止することにより、資源アクセスの
+			可能性のある割り込みがそのCPU上で発生することを抑制する */
 		spin_lock_irq(&mdev->data.work.q_lock);
 	}
 	sema_init(&mdev->data.work.s, 0);
@@ -1836,11 +1843,13 @@ int drbd_worker(struct drbd_thread *thi)
 	 * semaphore without corresponding list entry.
 	 * So don't do that.
 	 */
+	/* 変数valのロック解除し、ローカルCPUの割り込み状態をflagsに示された値にする */
 	spin_unlock_irq(&mdev->data.work.q_lock);
 
 	D_ASSERT(mdev->state.disk == D_DISKLESS && mdev->state.conn == C_STANDALONE);
 	/* _drbd_set_state only uses stop_nowait.
 	 * wait here for the Exiting receiver. */
+	/* receiverスレッドを停止する */
 	drbd_thread_stop(&mdev->receiver);
 	drbd_mdev_cleanup(mdev);
 

@@ -421,6 +421,7 @@ int drbd_release_ee(struct drbd_conf *mdev, struct list_head *list)
 	int is_net = list == &mdev->net_ee;
 
 	spin_lock_irq(&mdev->req_lock);
+	/* 2つのリストを結合し、空になったリストを再初期化 */
 	list_splice_init(list, &work_list);
 	spin_unlock_irq(&mdev->req_lock);
 
@@ -450,6 +451,7 @@ STATIC int drbd_process_done_ee(struct drbd_conf *mdev)
 
 	spin_lock_irq(&mdev->req_lock);
 	reclaim_net_ee(mdev, &reclaimed);
+	/* 2つのリストを結合し、空になったリストを再初期化 */
 	list_splice_init(&mdev->done_ee, &work_list);
 	spin_unlock_irq(&mdev->req_lock);
 
@@ -463,6 +465,7 @@ STATIC int drbd_process_done_ee(struct drbd_conf *mdev)
 	list_for_each_entry_safe(e, t, &work_list, w.list) {
 		trace_drbd_ee(mdev, e, "process_done_ee");
 		/* list_del not necessary, next/prev members not touched */
+		/* 作業コールバックの実行 */
 		ok = e->w.cb(mdev, &e->w, !ok) && ok;
 		drbd_free_ee(mdev, e);
 	}

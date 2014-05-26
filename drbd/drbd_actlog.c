@@ -143,7 +143,7 @@ STATIC int _drbd_md_sync_page_io(struct drbd_conf *mdev,
 	bio_get(bio); /* one bio_put() is in the completion handler */
 	atomic_inc(&mdev->md_io_in_use); /* drbd_md_put_buffer() is in the completion handler */
 	if (drbd_insert_fault(mdev, (rw & WRITE) ? DRBD_FAULT_MD_WR : DRBD_FAULT_MD_RD))
-		bio_endio(bio, -EIO);
+		bio_endio(bio, -EIO);	/* I/OŠ®—¹ƒnƒ“ƒhƒ‰‚ÌŽÀs */
 	else
 		submit_bio(rw, bio);
 	wait_until_done_or_force_detached(mdev, bdev, &mdev->md_io.done);

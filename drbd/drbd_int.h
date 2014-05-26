@@ -834,10 +834,12 @@ static inline enum drbd_thread_state get_t_state(struct drbd_thread *thi)
 }
 
 struct drbd_work;
+/* 作業コールバック */
 typedef int (*drbd_work_cb)(struct drbd_conf *, struct drbd_work *, int cancel);
+/* 作業領域 */
 struct drbd_work {
-	struct list_head list;
-	drbd_work_cb cb;
+	struct list_head list;	/* リスト */
+	drbd_work_cb cb;		/* 作業コールバック */
 };
 
 struct drbd_tl_epoch;
@@ -2275,6 +2277,7 @@ drbd_queue_work_front(struct drbd_work_queue *q, struct drbd_work *w)
 	unsigned long flags;
 	spin_lock_irqsave(&q->q_lock, flags);
 	list_add(&w->list, &q->q);
+	/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */
 	up(&q->s); /* within the spinlock,
 		      see comment near end of drbd_worker() */
 	spin_unlock_irqrestore(&q->q_lock, flags);
@@ -2285,7 +2288,9 @@ drbd_queue_work(struct drbd_work_queue *q, struct drbd_work *w)
 {
 	unsigned long flags;
 	spin_lock_irqsave(&q->q_lock, flags);
+	/* WORKのリストにキューを追加する */
 	list_add_tail(&w->list, &q->q);
+	/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */
 	up(&q->s); /* within the spinlock,
 		      see comment near end of drbd_worker() */
 	spin_unlock_irqrestore(&q->q_lock, flags);

@@ -16,11 +16,13 @@ static inline void mutex_init(struct mutex *m)
 
 static inline void mutex_lock(struct mutex *m)
 {
+	/* セマフォ構造体から資源をひとつとる。資源が0ならば、資源が取得できる（1になって、確保できるまで）待ち続ける。 */
 	down(&m->sem);
 }
 
 static inline int mutex_lock_interruptible(struct mutex *m)
 {
+	/* 割り込み有、セマフォ待ち */
 	return down_interruptible(&m->sem);
 }
 

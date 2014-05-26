@@ -235,6 +235,7 @@ void complete_master_bio(struct drbd_conf *mdev,
 		struct bio_and_error *m)
 {
 	trace_drbd_bio(mdev, "Rq", m->bio, 1, NULL);
+	/* I/O完了ハンドラの実行 */
 	bio_endio(m->bio, m->error);
 	dec_ap_bio(mdev);
 }
@@ -867,12 +868,12 @@ STATIC void maybe_pull_ahead(struct drbd_conf *mdev)
 	}
 	put_ldev(mdev);
 }
-
+/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
 STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, unsigned long start_time)
 {
 	const int rw = bio_rw(bio); /* bioのREAD or WRITE 取り出しマクロ*/
 	const int is_flush = (bio->bi_rw & DRBD_REQ_FLUSH);	
-	const int size = bio->bi_size;
+	const int size = bio->bi_size; /* bio->bio_size : I/Oの合計サイズ(Byte) */
 	const sector_t sector = bio->bi_sector;
 	struct drbd_tl_epoch *b = NULL;
 	struct drbd_request *req;
@@ -888,6 +889,7 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 		/* only pass the error to the upper layers.
 		 * if user cannot handle io errors, that's not our business. */
 		dev_err(DEV, "could not kmalloc() req\n");
+		/* I/O完了ハンドラの実行 */
 		bio_endio(bio, -ENOMEM);
 		return 0;
 	}
@@ -1131,12 +1133,13 @@ queue_barrier:
 			if (drbd_insert_fault(mdev,   rw == WRITE ? DRBD_FAULT_DT_WR
 						    : rw == READ  ? DRBD_FAULT_DT_RD
 						    :               DRBD_FAULT_DT_RA))
+				/* I/O完了ハンドラの実行 */
 				bio_endio(req->private_bio, -EIO);
 			else
 				generic_make_request(req->private_bio);
 			put_ldev(mdev);
 		} else
-			bio_endio(req->private_bio, -EIO);
+			bio_endio(req->private_bio, -EIO);	/* I/O完了ハンドラの実行 */
 	}
 
 	/* we need to plug ALWAYS since we possibly need to kick lo_dev.
@@ -1170,7 +1173,7 @@ fail_and_free_req:
 		put_ldev(mdev);
 	}
 	if (!ret)
-		bio_endio(bio, err);
+		bio_endio(bio, err);	/* I/O完了ハンドラの実行 */
 
 	drbd_req_free(req);
 	dec_ap_bio(mdev);
@@ -1200,7 +1203,7 @@ static int drbd_fail_request_early(struct drbd_conf *mdev, int is_write)
 
 	return 0;
 }
-/* requestキュー(bio)処理 */
+/* BLOCK I/O requestキュー(bio)処理 */
 MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 {
 	unsigned int s_enr, e_enr;
@@ -1208,6 +1211,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	unsigned long start_time;
 
 	if (drbd_fail_request_early(mdev, bio_data_dir(bio) & WRITE)) {
+		/* I/O完了ハンドラの実行 */
 		bio_endio(bio, -EPERM);
 		MAKE_REQUEST_RETURN;
 	}
@@ -1218,7 +1222,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	 * by the block layer. */
 	if (unlikely(bio->bi_rw & DRBD_REQ_HARDBARRIER)) {
 		/* bioのRW情報にDRBD_REQ_HARDBARRIERが設定されている場合はbio_endioをコールして抜ける */
-		bio_endio(bio, -EOPNOTSUPP);
+		bio_endio(bio, -EOPNOTSUPP);	/* I/O完了ハンドラの実行 */
 		MAKE_REQUEST_RETURN;
 	}
 	/* 開始にシステムが起動してからの総タイマー割り込み回数をセット */
@@ -1231,12 +1235,13 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 
 	/* to make some things easier, force alignment of requests within the
 	 * granularity of our hash tables */
-	s_enr = bio->bi_sector >> HT_SHIFT;
+	s_enr = bio->bi_sector >> HT_SHIFT;	/* bio->bi_sector : I/Oを行う領域の先頭セクタ番号をシフト */
 	e_enr = bio->bi_size ? (bio->bi_sector+(bio->bi_size>>9)-1) >> HT_SHIFT : s_enr;
-
+										/* bio->bi_size : I/Oの合計サイズ(Byte) */
 	if (likely(s_enr == e_enr)) {
 		do {
 			inc_ap_bio(mdev, 1);
+		/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
 		} while (drbd_make_request_common(mdev, bio, start_time));
 		MAKE_REQUEST_RETURN;
 	}
@@ -1244,12 +1249,13 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	/* can this bio be split generically?
 	 * Maybe add our own split-arbitrary-bios function. */
 	if (bio->bi_vcnt != 1 || bio->bi_idx != 0 || bio->bi_size > DRBD_MAX_BIO_SIZE) {
+		/* bio->bi_vcnt : bi_io_vecに格納されているエントリ数 */
 		/* rather error out here than BUG in bio_split */
 		dev_err(DEV, "bio would need to, but cannot, be split: "
 		    "(vcnt=%u,idx=%u,size=%u,sector=%llu)\n",
 		    bio->bi_vcnt, bio->bi_idx, bio->bi_size,
 		    (unsigned long long)bio->bi_sector);
-		bio_endio(bio, -EINVAL);
+		bio_endio(bio, -EINVAL);	/* I/O完了ハンドラの実行 */
 	} else {
 		/* This bio crosses some boundary, so we have to split it. */
 		struct bio_pair *bp;
@@ -1279,10 +1285,10 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 		inc_ap_bio(mdev, 3);
 
 		D_ASSERT(e_enr == s_enr + 1);
-
+		/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
 		while (drbd_make_request_common(mdev, &bp->bio1, start_time))
 			inc_ap_bio(mdev, 1);
-
+		/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
 		while (drbd_make_request_common(mdev, &bp->bio2, start_time))
 			inc_ap_bio(mdev, 1);
 

@@ -1002,6 +1002,7 @@ STATIC void bm_page_io_async(struct bm_aio_ctx *ctx, int page_nr, int rw) __must
 
 	if (drbd_insert_fault(mdev, (rw & WRITE) ? DRBD_FAULT_MD_WR : DRBD_FAULT_MD_RD)) {
 		bio->bi_rw |= rw;
+		/* I/OŠ®—¹ƒnƒ“ƒhƒ‰‚ÌÀs */
 		bio_endio(bio, -EIO);
 	} else {
 		submit_bio(rw, bio);
