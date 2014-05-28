@@ -1005,6 +1005,7 @@ STATIC void bm_page_io_async(struct bm_aio_ctx *ctx, int page_nr, int rw) __must
 		/* I/O完了ハンドラの実行 */
 		bio_endio(bio, -EIO);
 	} else {
+		/* ブロックI/O(bio)をRequestに変換してElevator(I/Oスケジューラ)に入れる */
 		submit_bio(rw, bio);
 		/* this should not count as user activity and cause the
 		 * resync to throttle -- see drbd_rs_should_slow_down(). */

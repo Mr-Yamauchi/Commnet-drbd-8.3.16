@@ -415,7 +415,7 @@ void drbd_free_some_ee(struct drbd_conf *mdev, struct drbd_epoch_entry *e, int i
 
 int drbd_release_ee(struct drbd_conf *mdev, struct list_head *list)
 {
-	LIST_HEAD(work_list);
+	LIST_HEAD(work_list);			/* work_list生成 */
 	struct drbd_epoch_entry *e, *t;
 	int count = 0;
 	int is_net = list == &mdev->net_ee;
@@ -444,7 +444,7 @@ int drbd_release_ee(struct drbd_conf *mdev, struct list_head *list)
  */
 STATIC int drbd_process_done_ee(struct drbd_conf *mdev)
 {
-	LIST_HEAD(work_list);
+	LIST_HEAD(work_list);			/* work_list生成 */
 	LIST_HEAD(reclaimed);
 	struct drbd_epoch_entry *e, *t;
 	int ok = (mdev->state.conn >= C_WF_REPORT_PARAMS);
@@ -571,7 +571,7 @@ STATIC int drbd_recv_short(struct drbd_conf *mdev, struct socket *sock,
 
 	return rv;
 }
-
+/* 受信待ち処理 */
 STATIC int drbd_recv(struct drbd_conf *mdev, void *buf, size_t size)
 {
 	mm_segment_t oldfs;
@@ -588,6 +588,7 @@ STATIC int drbd_recv(struct drbd_conf *mdev, void *buf, size_t size)
 
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
+	/* 指定サイズの受信待ち */
 	rv = sock_recvmsg(mdev->data.socket, &msg, size, msg.msg_flags);
 	set_fs(oldfs);
 
@@ -632,7 +633,7 @@ static void drbd_setbufsize(struct socket *sock, unsigned int snd,
 		sock->sk->sk_userlocks |= SOCK_RCVBUF_LOCK;
 	}
 }
-
+/* ソケット生成 */
 STATIC struct socket *drbd_try_connect(struct drbd_conf *mdev)
 {
 	const char *what;
@@ -643,7 +644,7 @@ STATIC struct socket *drbd_try_connect(struct drbd_conf *mdev)
 
 	if (!get_net_conf(mdev))
 		return NULL;
-
+	/* ソケット生成 */
 	what = "sock_create_kern";
 	err = sock_create_kern(((struct sockaddr *)mdev->net_conf->my_addr)->sa_family,
 		SOCK_STREAM, IPPROTO_TCP, &sock);
@@ -710,7 +711,7 @@ out:
 	put_net_conf(mdev);
 	return sock;
 }
-
+/* 受信待ちソケット生成 */
 STATIC struct socket *drbd_wait_for_connect(struct drbd_conf *mdev)
 {
 	int timeo, err;
@@ -719,7 +720,7 @@ STATIC struct socket *drbd_wait_for_connect(struct drbd_conf *mdev)
 
 	if (!get_net_conf(mdev))
 		return NULL;
-
+	/* ソケット生成 */
 	what = "sock_create_kern";
 	err = sock_create_kern(((struct sockaddr *)mdev->net_conf->my_addr)->sa_family,
 		SOCK_STREAM, IPPROTO_TCP, &s_listen);
@@ -813,6 +814,7 @@ static int drbd_socket_okay(struct drbd_conf *mdev, struct socket **sock)
  *     no point in trying again, please go standalone.
  *  -2 We do not have a network config...
  */
+/* 接続処理とasenderスレッドの起動 */
 STATIC int drbd_connect(struct drbd_conf *mdev)
 {
 	struct socket *s, *sock, *msock;
@@ -831,13 +833,14 @@ STATIC int drbd_connect(struct drbd_conf *mdev)
 	do {
 		for (try = 0;;) {
 			/* 3 tries, this should take less than a second! */
+			/* 接続とソケット生成 */
 			s = drbd_try_connect(mdev);
 			if (s || ++try >= 3)
 				break;
 			/* give the other side time to call bind() & listen() */
 			schedule_timeout_interruptible(HZ / 10);
 		}
-
+		/* ループ内で、sock,msockの順にソケットを確保してbreak */
 		if (s) {
 			if (!sock) {
 				drbd_send_fp(mdev, s, P_HAND_SHAKE_S);
@@ -863,6 +866,7 @@ STATIC int drbd_connect(struct drbd_conf *mdev)
 		}
 
 retry:
+		/* 受信待ちソケット生成 */
 		s = drbd_wait_for_connect(mdev);
 		if (s) {
 			try = drbd_recv_fp(mdev, s);
@@ -933,7 +937,7 @@ retry:
 	 * we use TCP_CORK where appropriate, though */
 	drbd_tcp_nodelay(sock);
 	drbd_tcp_nodelay(msock);
-
+	/* 送信・受信ソケット情報をセット */
 	mdev->data.socket = sock;
 	mdev->meta.socket = msock;
 	mdev->last_received = jiffies;
@@ -1007,12 +1011,12 @@ out_release_sockets:
 		sock_release(msock);
 	return -1;
 }
-
+/* ヘッダ受信処理 */
 STATIC int drbd_recv_header(struct drbd_conf *mdev, enum drbd_packets *cmd, unsigned int *packet_size)
 {
 	union p_header *h = &mdev->data.rbuf.header;
 	int r;
-
+	/* ヘッダ受信待ち */
 	r = drbd_recv(mdev, h, sizeof(*h));
 	if (unlikely(r != sizeof(*h))) {
 		if (!signal_pending(current))
@@ -3919,8 +3923,9 @@ STATIC int receive_bitmap(struct drbd_conf *mdev, enum drbd_packets cmd, unsigne
 				goto out;
 			break;
 		}
+		/* ヘッダ受信処理 */
 		if (!drbd_recv_header(mdev, &cmd, &data_size))
-			goto out;
+			goto out;	
 	}
 
 	INFO_bm_xfer_stats(mdev, "receive", &c);
@@ -4007,7 +4012,7 @@ struct data_cmd {
 	size_t pkt_size;
 	drbd_cmd_handler_f function;
 };
-
+/* 実行コマンドデータ配列 */
 static struct data_cmd drbd_cmd_handler[] = {
 	[P_DATA]	    = { 1, sizeof(struct p_data), receive_Data },
 	[P_DATA_REPLY]	    = { 1, sizeof(struct p_data), receive_DataReply },
@@ -4042,7 +4047,7 @@ static struct data_cmd drbd_cmd_handler[] = {
    Usually in mdev->data.rbuf.header.head the callback can find the usual
    p_header, but they may not rely on that. Since there is also p_header95 !
  */
-
+/* receiver kernelスレッド本体 */
 STATIC void drbdd(struct drbd_conf *mdev)
 {
 	union p_header *header = &mdev->data.rbuf.header;
@@ -4050,9 +4055,10 @@ STATIC void drbdd(struct drbd_conf *mdev)
 	enum drbd_packets cmd;
 	size_t shs; /* sub header size */
 	int rv;
-
+	/* 処理待ちループ */
 	while (get_t_state(&mdev->receiver) == Running) {
 		drbd_thread_current_set_cpu(mdev);
+		/* ヘッダ受信待ち */
 		if (!drbd_recv_header(mdev, &cmd, &packet_size))
 			goto err_out;
 
@@ -4060,7 +4066,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 			dev_err(DEV, "unknown packet type %d, l: %d!\n", cmd, packet_size);
 			goto err_out;
 		}
-
+		/* 実行コマンドから受信サイズを算出 */
 		shs = drbd_cmd_handler[cmd].pkt_size - sizeof(union p_header);
 		if (packet_size - shs > 0 && !drbd_cmd_handler[cmd].expect_payload) {
 			dev_err(DEV, "No payload expected %s l:%d\n", cmdname(cmd), packet_size);
@@ -4068,6 +4074,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 		}
 
 		if (shs) {
+			/* 受信サイズの受信待ち */
 			rv = drbd_recv(mdev, &header->h80.payload, shs);
 			if (unlikely(rv != shs)) {
 				if (!signal_pending(current))
@@ -4075,7 +4082,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 				goto err_out;
 			}
 		}
-
+		/* コマンド処理の実行 */
 		rv = drbd_cmd_handler[cmd].function(mdev, cmd, packet_size - shs);
 
 		if (unlikely(!rv)) {
@@ -4332,7 +4339,7 @@ STATIC int drbd_do_handshake(struct drbd_conf *mdev)
 	rv = drbd_send_handshake(mdev);
 	if (!rv)
 		return 0;
-
+	/* ヘッダ受信処理 */
 	rv = drbd_recv_header(mdev, &cmd, &length);
 	if (!rv)
 		return 0;
@@ -4430,7 +4437,7 @@ STATIC int drbd_do_auth(struct drbd_conf *mdev)
 	rv = drbd_send_cmd2(mdev, P_AUTH_CHALLENGE, my_challenge, CHALLENGE_LEN);
 	if (!rv)
 		goto fail;
-
+	/* ヘッダ受信処理 */
 	rv = drbd_recv_header(mdev, &cmd, &length);
 	if (!rv)
 		goto fail;
@@ -4485,7 +4492,7 @@ STATIC int drbd_do_auth(struct drbd_conf *mdev)
 	rv = drbd_send_cmd2(mdev, P_AUTH_RESPONSE, response, resp_size);
 	if (!rv)
 		goto fail;
-
+	/* ヘッダ受信処理 */
 	rv = drbd_recv_header(mdev, &cmd, &length);
 	if (!rv)
 		goto fail;
@@ -4556,6 +4563,7 @@ int drbdd_init(struct drbd_thread *thi)
 	dev_info(DEV, "receiver (re)started\n");
 
 	do {
+		/* 接続処理とasenderスレッドの起動 -- 正常終了時は1リターン*/
 		h = drbd_connect(mdev);
 		if (h == 0) {
 			drbd_disconnect(mdev);
@@ -4567,8 +4575,9 @@ int drbdd_init(struct drbd_thread *thi)
 		}
 	} while (h == 0);
 
-	if (h > 0) {
+	if (h > 0) { /* 接続成功時 */
 		if (get_net_conf(mdev)) {
+			/* receiver kernelスレッド本体の実行 */
 			drbdd(mdev);
 			put_net_conf(mdev);
 		}
@@ -4915,7 +4924,7 @@ static struct asender_cmd *get_asender_cmd(int cmd)
 		return NULL;
 	return &asender_tbl[cmd];
 }
-/* asenderスレッドの起動処理 */
+/* asender kernelスレッド本体 */
 int drbd_asender(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;
@@ -4935,7 +4944,7 @@ int drbd_asender(struct drbd_thread *thi)
 	rv = sched_setscheduler(current, SCHED_RR, &param);
 	if (rv < 0)
 		dev_err(DEV, "drbd_asender: ERROR set priority, ret=%d\n", rv);
-
+	/* 処理待ちループ */
 	while (get_t_state(thi) == Running) {
 		drbd_thread_current_set_cpu(mdev);
 		if (drbd_test_and_clear_flag(mdev, SEND_PING)) {
@@ -5050,6 +5059,7 @@ int drbd_asender(struct drbd_thread *thi)
 			mdev->last_received = jiffies;
 			D_ASSERT(cmd != NULL);
 			trace_drbd_packet(mdev, mdev->meta.socket, 1, (void *)h, __FILE__, __LINE__);
+			/* asender処理実行 */
 			if (!cmd->process(mdev, h))
 				goto reconnect;
 

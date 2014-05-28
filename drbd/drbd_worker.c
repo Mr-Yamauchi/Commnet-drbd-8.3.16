@@ -1748,7 +1748,7 @@ int drbd_worker(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;
 	struct drbd_work *w = NULL;
-	LIST_HEAD(work_list);
+	LIST_HEAD(work_list);					/* work_list¶¬ */
 	int intr = 0, i;
 
 	sprintf(current->comm, "drbd%d_worker", mdev_to_minor(mdev));

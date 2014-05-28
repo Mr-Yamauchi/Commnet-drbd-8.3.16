@@ -896,7 +896,8 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 	req->start_time = start_time;
 
 	trace_drbd_bio(mdev, "Rq", bio, 0, req);
-
+	/* mdev->state.diskがD_INCONSISTENT以上 */
+	/* (D_INCONSISTENT,D_OUTDATED,D_UNKNOWN,D_CONSISTENT,D_UP_TO_DATE,D_MASK)かチェックする */
 	local = get_ldev(mdev);
 	if (!local) {
 		bio_put(req->private_bio); /* or we get a bio leak */
@@ -1231,13 +1232,13 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	/*
 	 * what we "blindly" assume:
 	 */
-	D_ASSERT((bio->bi_size & 0x1ff) == 0);
+	D_ASSERT((bio->bi_size & 0x1ff) == 0);	/* 何かのチェック */
 
 	/* to make some things easier, force alignment of requests within the
 	 * granularity of our hash tables */
 	s_enr = bio->bi_sector >> HT_SHIFT;	/* bio->bi_sector : I/Oを行う領域の先頭セクタ番号をシフト */
 	e_enr = bio->bi_size ? (bio->bi_sector+(bio->bi_size>>9)-1) >> HT_SHIFT : s_enr;
-										/* bio->bi_size : I/Oの合計サイズ(Byte) */
+										/* bio->bi_size : I/Oの合計サイズ(Byte) */ /* 終了セクタ？ */
 	if (likely(s_enr == e_enr)) {
 		do {
 			inc_ap_bio(mdev, 1);

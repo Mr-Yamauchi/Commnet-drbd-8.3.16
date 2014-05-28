@@ -1891,6 +1891,7 @@ static inline int drbd_setsockopt(struct socket *sock, int level, int optname,
 static inline void drbd_tcp_cork(struct socket *sock)
 {
 	int __user val = 1;
+	/* TCP_CORK : アプリ側で送信のタイミングを制御 */
 	(void) drbd_setsockopt(sock, SOL_TCP, TCP_CORK,
 			(char __user *)&val, sizeof(val));
 }
@@ -1898,6 +1899,7 @@ static inline void drbd_tcp_cork(struct socket *sock)
 static inline void drbd_tcp_uncork(struct socket *sock)
 {
 	int __user val = 0;
+	/* TCP_CORK : アプリ側で送信のタイミングを制御 */
 	(void) drbd_setsockopt(sock, SOL_TCP, TCP_CORK,
 			(char __user *)&val, sizeof(val));
 }
@@ -2439,7 +2441,7 @@ static inline int get_net_conf(struct drbd_conf *mdev)
 {
 	int have_net_conf;
 
-	atomic_inc(&mdev->net_cnt);
+	atomic_inc(&mdev->net_cnt);	/* net_cntをインクリメント */
 	have_net_conf = mdev->state.conn >= C_UNCONNECTED;
 	if (!have_net_conf)
 		put_net_conf(mdev);

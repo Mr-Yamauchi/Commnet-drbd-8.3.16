@@ -3878,7 +3878,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 		goto out_no_q;
 	mdev->rq_queue = q;
 	q->queuedata   = mdev;
-	/* 仮想的なディスクの作成 */
+	/* ブロックデバイス情報確保(仮想的なディスクの作成) */
 	disk = alloc_disk(1);
 	if (!disk)
 		goto out_no_disk;
@@ -3901,8 +3901,8 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 
 	q->backing_dev_info.congested_fn = drbd_congested;
 	q->backing_dev_info.congested_data = mdev;
-	/* requestキューのbio取り出しコールバックをセット */
-	/* このセットがないと、__make_request()というデフォルトのコールバックが呼ばれる */
+	/* bioインターフェース( BLOCK I/O requestキュー(bio)処理 )をセット */
+	/* このセットがないと、Kernelの__make_request()というデフォルトのコールバックが呼ばれるらしい */
 	blk_queue_make_request(q, drbd_make_request);
 #ifdef REQ_FLUSH
 	blk_queue_flush(q, REQ_FLUSH | REQ_FUA);

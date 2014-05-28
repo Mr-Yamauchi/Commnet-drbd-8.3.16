@@ -293,7 +293,7 @@ static inline struct drbd_request *drbd_req_new(struct drbd_conf *mdev,
 	struct bio *bio_src)
 {
 	struct drbd_request *req =
-		mempool_alloc(drbd_request_mempool, GFP_NOIO);
+		mempool_alloc(drbd_request_mempool, GFP_NOIO);	/* ƒƒ‚ƒŠƒv[ƒ‹‚©‚ç‚Ìstruct drbd_request‚Ìæ“¾ */
 	if (likely(req)) {
 		drbd_req_make_private_bio(req, bio_src);
 
