@@ -1449,9 +1449,10 @@ int w_restart_disk_io(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 	   theoretically. Practically it can not deadlock, since this is
 	   only used when unfreezing IOs. All the extents of the requests
 	   that made it into the TL are already active */
-
+	/* drbd_request内にmaster_bioの複製をセット */
 	drbd_req_make_private_bio(req, req->master_bio);
 	req->private_bio->bi_bdev = mdev->ldev->backing_bdev;
+	/* ブロック・デバイスのI / O要求の発行 */
 	generic_make_request(req->private_bio);
 
 	return 1;

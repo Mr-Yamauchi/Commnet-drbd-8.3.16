@@ -663,7 +663,7 @@ char* run_admm_generic(struct d_resource* res ,const char* cmd)
 
 	return buffer;
 }
-
+/* meta-data‚Ìì¬ˆ— */
 int adm_create_md(struct d_resource* res ,const char* cmd)
 {
 	char answer[ANSWER_SIZE];

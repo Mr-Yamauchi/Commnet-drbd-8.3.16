@@ -2457,7 +2457,7 @@ STATIC void drbd_connector_callback(void *data)
 	reply->minor = nlp->drbd_minor;
 	reply->ret_code = NO_ERROR; /* Might by modified by cm->function. */
 	/* reply->tag_list; might be modified by cm->function. */
-	/* NETLINK処理の実行 */
+	/* NETLINK処理の実行(コマンド処理に実行) */
 	rr = cm->function(mdev, nlp, reply);
 
 	cn_reply->id = req->id;
@@ -2467,7 +2467,7 @@ STATIC void drbd_connector_callback(void *data)
 	cn_reply->flags = 0;
 
 	trace_drbd_netlink(cn_reply, 0);
-	/* 応答を送信(これもKernel APIのはずで、connector.cは利用されていない */
+	/* NETLINK応答を送信(これもKernel APIのはずで、connector.cは利用されていない */
 	rr = cn_netlink_send(cn_reply, CN_IDX_DRBD, GFP_KERNEL);
 	if (rr && rr != -ESRCH)
 		printk(KERN_INFO "drbd: cn_netlink_send()=%d\n", rr);
@@ -2766,6 +2766,7 @@ int __init drbd_nl_init(void)
 			__same_type(&cn_add_callback, cn_add_callback_req_fn) ||
 			__same_type(&cn_add_callback, cn_add_callback_void_fn)));
 #endif
+		/* NETLINKコールバック登録処理(何も考えずに、 cn_add_callback()で接続コールバックが設定出来る */
 		/* RHEL6.4の場合、connector.c/cn_queue.cは導入されない */
 		/* cn_add_callbackはKernel LIB(?といっていいのか？)が利用されてINETLINKからの受信コールバックを登録している */
 		err = cn_add_callback(&cn_id_drbd, "cn_drbd", &drbd_connector_callback);

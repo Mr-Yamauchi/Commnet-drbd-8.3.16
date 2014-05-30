@@ -276,26 +276,26 @@ static inline struct drbd_request *_ar_id_to_req(struct drbd_conf *mdev,
 	}
 	return NULL;
 }
-
+/* bioの複製をセット */
 static inline void drbd_req_make_private_bio(struct drbd_request *req, struct bio *bio_src)
 {
 	struct bio *bio;
-	bio = bio_clone(bio_src, GFP_NOIO); /* XXX cannot fail?? */
+	bio = bio_clone(bio_src, GFP_NOIO); /* XXX cannot fail?? */	/* bioクローン生成 */
 
-	req->private_bio = bio;
+	req->private_bio = bio;	/* struct drbd_requestのprivate_bioにクローンbioをセット */
 
 	bio->bi_private  = req;
 	bio->bi_end_io   = drbd_endio_pri;
 	bio->bi_next     = NULL;
 }
-
+/* struct drbd_requestの生成 */
 static inline struct drbd_request *drbd_req_new(struct drbd_conf *mdev,
 	struct bio *bio_src)
 {
 	struct drbd_request *req =
 		mempool_alloc(drbd_request_mempool, GFP_NOIO);	/* メモリプールからのstruct drbd_requestの取得 */
 	if (likely(req)) {
-		drbd_req_make_private_bio(req, bio_src);
+		drbd_req_make_private_bio(req, bio_src);		/* 生成したdrbd_request内にbioの複製をセット */
 
 		req->rq_state    = bio_data_dir(bio_src) == WRITE ? RQ_WRITE : 0;
 		req->mdev        = mdev;
@@ -304,12 +304,12 @@ static inline struct drbd_request *drbd_req_new(struct drbd_conf *mdev,
 		req->sector      = bio_src->bi_sector;
 		req->size        = bio_src->bi_size;
 		INIT_HLIST_NODE(&req->collision);
-		INIT_LIST_HEAD(&req->tl_requests);
-		INIT_LIST_HEAD(&req->w.list);
+		INIT_LIST_HEAD(&req->tl_requests);				/* tl_requests(転送ログ?)リスト生成 */
+		INIT_LIST_HEAD(&req->w.list);					/* w.listリスト生成 */
 	}
 	return req;
 }
-
+/* struct drbd_requestの解放 */
 static inline void drbd_req_free(struct drbd_request *req)
 {
 	mempool_free(req, drbd_request_mempool);

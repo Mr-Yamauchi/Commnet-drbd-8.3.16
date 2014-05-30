@@ -3894,7 +3894,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 	/* スペシャルファイル名( /dev/drbdXX ) */
 	sprintf(disk->disk_name, "drbd%d", minor);
 	disk->private_data = mdev;
-
+	/* ブロックデバイス管理構造体を確保し登録 */
 	mdev->this_bdev = bdget(MKDEV(DRBD_MAJOR, minor));
 	/* we have no partitions. we contain only ourselves. */
 	mdev->this_bdev->bd_contains = mdev->this_bdev;
@@ -3902,7 +3902,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 	q->backing_dev_info.congested_fn = drbd_congested;
 	q->backing_dev_info.congested_data = mdev;
 	/* bioインターフェース( BLOCK I/O requestキュー(bio)処理 )をセット */
-	/* このセットがないと、Kernelの__make_request()というデフォルトのコールバックが呼ばれるらしい */
+	/* このdrbd_make_requestセットがないと、Kernelの__make_request()というデフォルトのコールバックが呼ばれるらしい */
 	blk_queue_make_request(q, drbd_make_request);
 #ifdef REQ_FLUSH
 	blk_queue_flush(q, REQ_FLUSH | REQ_FUA);
@@ -3915,7 +3915,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 	q->queue_lock = &mdev->req_lock; /* needed since we use */
 #ifdef blk_queue_plugged
 		/* plugging on a queue, that actually has no requests! */
-	/* アンプラグ処理のセット */
+	/* ブロックデバイスキューアンプラグ処理のセット */
 	q->unplug_fn = drbd_unplug_fn;
 #endif
 

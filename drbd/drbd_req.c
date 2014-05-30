@@ -883,7 +883,7 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 	union drbd_state s;
 
 	/* allocate outside of all locks; */
-	req = drbd_req_new(mdev, bio);
+	req = drbd_req_new(mdev, bio);		/* struct drbd_requestの生成(reqへのbio複製の生成とセット) */
 	if (!req) {
 		dec_ap_bio(mdev);
 		/* only pass the error to the upper layers.
@@ -893,27 +893,30 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 		bio_endio(bio, -ENOMEM);
 		return 0;
 	}
-	req->start_time = start_time;
+	req->start_time = start_time;			/* 開始時間のセット */
 
 	trace_drbd_bio(mdev, "Rq", bio, 0, req);
 	/* mdev->state.diskがD_INCONSISTENT以上 */
 	/* (D_INCONSISTENT,D_OUTDATED,D_UNKNOWN,D_CONSISTENT,D_UP_TO_DATE,D_MASK)かチェックする */
 	local = get_ldev(mdev);
 	if (!local) {
+		/* 生成したdrbd_requestに複製したbioの解放 */
 		bio_put(req->private_bio); /* or we get a bio leak */
+		/* 生成したdrbd_requestに複製したbioエリアをリセット */
 		req->private_bio = NULL;
 	}
 	if (rw == WRITE) {	/* WRITE要求の場合 */
 		/* Need to replicate writes.  Unless it is an empty flush,
 		 * which is better mapped to a DRBD P_BARRIER packet,
 		 * also for drbd wire protocol compatibility reasons. */
-		if (unlikely(size == 0))
+		if (unlikely(size == 0)) /* WRITE要求でbioのI/Oの合計サイズ(Byte)が０(書き込み無) */
 			/* The only size==0 bios we expect are empty flushes. */
 			D_ASSERT(is_flush);
-		remote = 1;
-	} else {			/* READ要求の場合 */
+		remote = 1;	/* リモートフラグセット */
+	} else {			/* READ要求の場合 - READAはREAD ASYNCのことかと？ */
 		/* READ || READA */
 		if (local) {
+			/* 読み込み可能かチェック(?)している(?) */
 			if (!drbd_may_do_local_read(mdev, sector, size)) {
 				/* we could kick the syncer to
 				 * sync this extent asap, wait for
@@ -921,7 +924,9 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 				 * Or just issue the request remotely.
 				 */
 				local = 0;
+				/* 生成したdrbd_requestに複製したbioの解放 */
 				bio_put(req->private_bio);
+				/* 生成したdrbd_requestに複製したbioエリアをリセット */
 				req->private_bio = NULL;
 				put_ldev(mdev);
 			}
@@ -1137,7 +1142,7 @@ queue_barrier:
 				/* I/O完了ハンドラの実行 */
 				bio_endio(req->private_bio, -EIO);
 			else
-				generic_make_request(req->private_bio);
+				generic_make_request(req->private_bio);	/* ブロック・デバイスのI / O要求の発行 */
 			put_ldev(mdev);
 		} else
 			bio_endio(req->private_bio, -EIO);	/* I/O完了ハンドラの実行 */
@@ -1169,13 +1174,14 @@ fail_free_complete:
 		drbd_al_complete_io(mdev, sector);
 fail_and_free_req:
 	if (local) {
+		/* 生成したdrbd_requestに複製したbioの解放 */
 		bio_put(req->private_bio);
 		req->private_bio = NULL;
 		put_ldev(mdev);
 	}
 	if (!ret)
 		bio_endio(bio, err);	/* I/O完了ハンドラの実行 */
-
+	/* 生成したreqエリアの解放 */
 	drbd_req_free(req);
 	dec_ap_bio(mdev);
 	kfree(b);
@@ -1250,7 +1256,9 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	/* can this bio be split generically?
 	 * Maybe add our own split-arbitrary-bios function. */
 	if (bio->bi_vcnt != 1 || bio->bi_idx != 0 || bio->bi_size > DRBD_MAX_BIO_SIZE) {
+		/* 分割がおかしい時? */
 		/* bio->bi_vcnt : bi_io_vecに格納されているエントリ数 */
+		/* bio->bi_size : I/Oの合計サイズ(Byte) */
 		/* rather error out here than BUG in bio_split */
 		dev_err(DEV, "bio would need to, but cannot, be split: "
 		    "(vcnt=%u,idx=%u,size=%u,sector=%llu)\n",
@@ -1272,6 +1280,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 		const int sps = 1 << HT_SHIFT; /* sectors per slot */
 		const int mask = sps - 1;
 		const sector_t first_sectors = sps - (sect & mask);
+		/* bioの分割 */
 		bp = bio_split(bio,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,28)
 				bio_split_pool,
@@ -1286,15 +1295,15 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 		inc_ap_bio(mdev, 3);
 
 		D_ASSERT(e_enr == s_enr + 1);
-		/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
+		/* 共通部 : BLOCK I/O requestキュー(bio)処理 : 分割したbio1を処理 */
 		while (drbd_make_request_common(mdev, &bp->bio1, start_time))
 			inc_ap_bio(mdev, 1);
-		/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
+		/* 共通部 : BLOCK I/O requestキュー(bio)処理 : 分割したbio2を処理*/
 		while (drbd_make_request_common(mdev, &bp->bio2, start_time))
 			inc_ap_bio(mdev, 1);
 
 		dec_ap_bio(mdev);
-
+		/* 分割エリアの解放 */
 		bio_pair_release(bp);
 	}
 	MAKE_REQUEST_RETURN;

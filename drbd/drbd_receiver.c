@@ -1323,6 +1323,7 @@ next_bio:
 		if (bios)
 			bio->bi_rw &= ~DRBD_REQ_UNPLUG;
 		trace_drbd_bio(mdev, "Sec", bio, 0, NULL);
+		/* WRAPPER経由のブロック・デバイスのI / O要求の発行 */
 		drbd_generic_make_request(mdev, fault_type, bio);
 
 		/* strip off REQ_FLUSH,

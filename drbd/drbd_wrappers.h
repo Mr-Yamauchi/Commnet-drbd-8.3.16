@@ -285,7 +285,7 @@ static inline void drbd_generic_make_request(struct drbd_conf *mdev,
 		/* I/O完了ハンドラの実行 */
 		bio_endio(bio, -EIO);
 	else
-		generic_make_request(bio);
+		generic_make_request(bio);	/* ブロック・デバイスのI/O要求の発行 */
 }
 
 /* see 7eaceac block: remove per-queue plugging */
@@ -301,6 +301,7 @@ static inline void drbd_plug_device(struct drbd_conf *mdev)
  * implicitly checked in blk_plug_device */
 
 	if (!blk_queue_plugged(q)) {
+		/* デバイスのRequestQueueをPlug(封鎖)して新たなI/Oの実行を抑止 */
 		blk_plug_device(q);
 		del_timer(&q->unplug_timer);
 		/* unplugging should not happen automatically... */
