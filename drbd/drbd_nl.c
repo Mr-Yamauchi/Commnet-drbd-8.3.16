@@ -403,6 +403,7 @@ drbd_set_role(struct drbd_conf *mdev, enum drbd_role new_role, int force)
 		dev_warn(DEV, "Forced to consider local data as UpToDate!\n");
 
 	/* Wait until nothing is on the fly :) */
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, atomic_read(&mdev->ap_pending_cnt) == 0);
 
 	if (new_role == R_SECONDARY) {
@@ -469,7 +470,7 @@ STATIC struct drbd_conf *ensure_mdev(int minor, int create)
 
 		if (disk) {
 			struct kobject *parent;
-
+			// 仮想ディスクの登録
 			add_disk(disk);
 			parent = drbd_kobj_of_disk(disk);
 			mdev->kobj = kobject_create_and_add("drbd", parent);
@@ -487,7 +488,7 @@ STATIC struct drbd_conf *ensure_mdev(int minor, int create)
 
 	return mdev;
 }
-
+/* NETLINK:PRIMARY昇格処理 */
 STATIC int drbd_nl_primary(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 			   struct drbd_nl_cfg_reply *reply)
 {
@@ -505,7 +506,7 @@ STATIC int drbd_nl_primary(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 
 	return 0;
 }
-
+/* NETLINK:SECONDARY降格処理 */
 STATIC int drbd_nl_secondary(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 			     struct drbd_nl_cfg_reply *reply)
 {
@@ -592,12 +593,14 @@ void drbd_suspend_io(struct drbd_conf *mdev)
 	drbd_set_flag(mdev, SUSPEND_IO);
 	if (is_susp(mdev->state))
 		return;
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !atomic_read(&mdev->ap_bio_cnt));
 }
 
 void drbd_resume_io(struct drbd_conf *mdev)
 {
 	drbd_clear_flag(mdev, SUSPEND_IO);
+	/* misc_waitイベントをアップ */
 	wake_up(&mdev->misc_wait);
 }
 
@@ -888,6 +891,7 @@ void drbd_reconsider_max_bio_size(struct drbd_conf *mdev)
  */
 static void drbd_reconfig_start(struct drbd_conf *mdev)
 {
+	/* state_waitイベント待ち */
 	wait_event(mdev->state_wait, !drbd_test_and_set_flag(mdev, CONFIG_PENDING));
 	wait_event(mdev->state_wait, !drbd_test_flag(mdev, DEVICE_DYING));
 	drbd_thread_start(&mdev->worker);	/* workerスレッドの起動 */
@@ -908,6 +912,7 @@ static void drbd_reconfig_done(struct drbd_conf *mdev)
 	} else
 		drbd_clear_flag(mdev, CONFIG_PENDING);
 	spin_unlock_irq(&mdev->req_lock);
+	/* state_waitイベントアップ */
 	wake_up(&mdev->state_wait);
 }
 
@@ -962,6 +967,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 	 * drbd_ldev_destroy is done already, we may end up here very fast,
 	 * e.g. if someone calls attach from the on-io-error handler,
 	 * to realize a "hot spare" feature (not that I'd recommend that) */
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !atomic_read(&mdev->local_cnt));
 
 	/* make sure there is no leftover from previous force-detach attempts */
@@ -1103,6 +1109,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 
 	drbd_suspend_io(mdev);
 	/* also wait for the last barrier ack. */
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !atomic_read(&mdev->ap_pending_cnt) || is_susp(mdev->state));
 	/* and for any other previously queued work */
 	drbd_flush_workqueue(mdev);
@@ -1393,6 +1400,7 @@ STATIC int drbd_nl_detach(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	retcode = drbd_request_state(mdev, NS(disk, D_FAILED));
 	drbd_md_put_buffer(mdev);
 	/* D_FAILED will transition to DISKLESS. */
+	/* misc_waitイベント待ち */
 	ret = wait_event_interruptible(mdev->misc_wait,
 			mdev->state.disk != D_FAILED);
 	drbd_resume_io(mdev);
@@ -1728,7 +1736,7 @@ STATIC int drbd_nl_disconnect(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nl
 
 	if (retcode < SS_SUCCESS)
 		goto fail;
-
+	/* state_waitイベント待ち */
 	if (wait_event_interruptible(mdev->state_wait,
 				     mdev->state.conn != C_DISCONNECTING)) {
 		/* Do not test for mdev->state.conn == C_STANDALONE, since
@@ -2033,6 +2041,7 @@ STATIC int drbd_nl_invalidate(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nl
 	 * resync just being finished, wait for it before requesting a new resync.
 	 * Also wait for it's after_state_ch(). */
 	drbd_suspend_io(mdev);
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !drbd_test_flag(mdev, BITMAP_IO));
 	drbd_flush_workqueue(mdev);
 
@@ -2072,6 +2081,7 @@ STATIC int drbd_nl_invalidate_peer(struct drbd_conf *mdev, struct drbd_nl_cfg_re
 	 * resync just being finished, wait for it before requesting a new resync.
 	 * Also wait for it's after_state_ch(). */
 	drbd_suspend_io(mdev);
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !drbd_test_flag(mdev, BITMAP_IO));
 	drbd_flush_workqueue(mdev);
 
@@ -2269,6 +2279,7 @@ STATIC int drbd_nl_start_ov(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp,
 	/* If there is still bitmap IO pending, e.g. previous resync or verify
 	 * just being finished, wait for it before requesting a new resync. */
 	drbd_suspend_io(mdev);
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !drbd_test_flag(mdev, BITMAP_IO));
 
 	/* w_make_ov_request expects start position to be aligned */
@@ -2352,8 +2363,8 @@ struct cn_handler_struct {
 };
 /* NETLINK受信コマンドテーブル */
 static struct cn_handler_struct cnd_table[] = {
-	[ P_primary ]		= { &drbd_nl_primary,		0 },
-	[ P_secondary ]		= { &drbd_nl_secondary,		0 },
+	[ P_primary ]		= { &drbd_nl_primary,		0 },	/* NETLINK:PRIMARY昇格処理 */
+	[ P_secondary ]		= { &drbd_nl_secondary,		0 },	/* NETLINK:SECONDARY降格処理 */
 	[ P_disk_conf ]		= { &drbd_nl_disk_conf,		0 },
 	[ P_detach ]		= { &drbd_nl_detach,		0 },
 	[ P_net_conf ]		= { &drbd_nl_net_conf,		0 },

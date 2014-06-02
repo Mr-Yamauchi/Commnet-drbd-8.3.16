@@ -279,7 +279,7 @@ static void cn_input(struct sock *sk, int len)
 static void cn_notify(struct cb_id *id, u32 notify_event)
 {
 	struct cn_ctl_entry *ent;
-	/* セマフォ構造体から資源をひとつとる。資源が0ならば、資源が取得できる（1になって、確保できるまで）待ち続ける。 */
+	/* セマフォ待ち：確保できるまで待ち続ける。 */
 	down(&notify_lock);
 	list_for_each_entry(ent, &notify_list, notify_entry) {
 		int i;
@@ -313,7 +313,7 @@ static void cn_notify(struct cb_id *id, u32 notify_event)
 			cn_netlink_send(&m, ctl->group, GFP_KERNEL);
 		}
 	}
-	/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */
+	/* セマフォ解放 */
 	up(&notify_lock);
 }
 
@@ -427,7 +427,7 @@ static void cn_callback(void *data)
 	 */
 	if (ctl->group == 0) {
 		struct cn_ctl_entry *n;
-		/* セマフォ構造体から資源をひとつとる。資源が0ならば、資源が取得できる（1になって、確保できるまで）待ち続ける。 */
+		/* セマフォ待ち：確保できるまで待ち続ける。 */
 		down(&notify_lock);
 		list_for_each_entry_safe(ent, n, &notify_list, notify_entry) {
 			if (cn_ctl_msg_equals(ent->msg, ctl)) {
@@ -435,7 +435,7 @@ static void cn_callback(void *data)
 				kfree(ent);
 			}
 		}
-		/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */
+		/* セマフォ解放 */
 		up(&notify_lock);
 
 		return;
@@ -451,7 +451,7 @@ static void cn_callback(void *data)
 	ent->msg = (struct cn_ctl_msg *)(ent + 1);
 
 	memcpy(ent->msg, ctl, size - sizeof(*ent));
-	/* セマフォ構造体から資源をひとつとる。資源が0ならば、資源が取得できる（1になって、確保できるまで）待ち続ける。 */
+	/* セマフォ待ち：確保できるまで待ち続ける。 */
 	down(&notify_lock);
 	list_add(&ent->notify_entry, &notify_list);
 	/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */

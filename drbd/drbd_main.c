@@ -217,7 +217,7 @@ int _get_ldev_if_state(struct drbd_conf *mdev, enum drbd_disk_state mins)
 	io_allowed = (mdev->state.disk >= mins);
 	if (!io_allowed) {
 		if (atomic_dec_and_test(&mdev->local_cnt))
-			wake_up(&mdev->misc_wait);
+			wake_up(&mdev->misc_wait);		/* misc_waitイベントをアップ */
 	}
 	return io_allowed;
 }
@@ -419,7 +419,7 @@ static void _tl_restart(struct drbd_conf *mdev, enum drbd_req_event what)
 					inc_ap_pending(mdev);
 					drbd_set_flag(mdev, CREATE_BARRIER);
 				}
-
+				/* data.workのsセマフォを待つプロセスの起床 */
 				drbd_queue_work(&mdev->data.work, &b->w);
 			}
 			pn = &b->next;
@@ -680,7 +680,7 @@ drbd_req_state(struct drbd_conf *mdev, union drbd_state mask,
 	unsigned long flags;
 	union drbd_state os, ns;
 	enum drbd_state_rv rv;
-
+	/* done完了待ちイベントの生成 */
 	init_completion(&done);
 
 	if (f & CS_SERIALIZE)
@@ -725,7 +725,7 @@ drbd_req_state(struct drbd_conf *mdev, union drbd_state mask,
 
 		if (mask.conn == C_MASK && val.conn == C_DISCONNECTING)
 			drbd_set_flag(mdev, DISCONNECT_SENT);
-
+		/* state_waitイベント待ち */
 		wait_event(mdev->state_wait,
 			(rv = _req_st_cond(mdev, mask, val)));
 
@@ -748,6 +748,7 @@ drbd_req_state(struct drbd_conf *mdev, union drbd_state mask,
 
 	if (f & CS_WAIT_COMPLETE && rv == SS_SUCCESS) {
 		D_ASSERT(current != mdev->worker.task);
+		/* doneイベント待ち */
 		wait_for_completion(&done);
 	}
 
@@ -778,7 +779,7 @@ _drbd_request_state(struct drbd_conf *mdev, union drbd_state mask,
 		    union drbd_state val, enum chg_state_flags f)
 {
 	enum drbd_state_rv rv;
-
+	/* state_waitイベント待ち */
 	wait_event(mdev->state_wait,
 		   (rv = drbd_req_state(mdev, mask, val, f)) != SS_IN_TRANSIENT_STATE);
 
@@ -1369,8 +1370,9 @@ __drbd_set_state(struct drbd_conf *mdev, union drbd_state ns,
 
 	if (os.disk == D_ATTACHING && ns.disk >= D_NEGOTIATING)
 		drbd_print_uuids(mdev, "attached to UUIDs");
-
+	/* misc_waitイベントをアップ */
 	wake_up(&mdev->misc_wait);
+	/* state_waitイベントアップ */
 	wake_up(&mdev->state_wait);
 
 	/* Aborted verify run, or we reached the stop sector.
@@ -1490,6 +1492,7 @@ __drbd_set_state(struct drbd_conf *mdev, union drbd_state ns,
 		ascw->flags = flags;
 		ascw->w.cb = w_after_state_ch;
 		ascw->done = done;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &ascw->w);
 	} else {
 		dev_warn(DEV, "Could not kmalloc an ascw\n");
@@ -1505,6 +1508,7 @@ STATIC int w_after_state_ch(struct drbd_conf *mdev, struct drbd_work *w, int unu
 	after_state_ch(mdev, ascw->os, ascw->ns, ascw->flags);
 	if (ascw->flags & CS_WAIT_COMPLETE) {
 		D_ASSERT(ascw->done != NULL);
+		/* event待ち起床 */
 		complete(ascw->done);
 	}
 	kfree(ascw);
@@ -1599,6 +1603,7 @@ STATIC void after_state_ch(struct drbd_conf *mdev, union drbd_state os,
 	/* Wake up role changes, that were delayed because of connection establishing */
 	if (os.conn == C_WF_REPORT_PARAMS && ns.conn != C_WF_REPORT_PARAMS) {
 		drbd_clear_flag(mdev, STATE_SENT);
+		/* state_waitイベントアップ */
 		wake_up(&mdev->state_wait);
 	}
 
@@ -1933,7 +1938,7 @@ restart:
 	thi->task = NULL;
 	thi->t_state = None;
 	smp_mb();
-
+	/* event待ち起床 */
 	complete(&thi->stop);
 	spin_unlock_irqrestore(&thi->t_lock, flags);
 
@@ -1980,7 +1985,7 @@ int drbd_thread_start(struct drbd_thread *thi)
 			spin_unlock_irqrestore(&thi->t_lock, flags);
 			return false;
 		}
-
+		/* thi->stop完了待ちイベントの生成 */
 		init_completion(&thi->stop);
 		D_ASSERT(thi->task == NULL);
 		thi->reset_cpu_mask = 1;
@@ -2044,6 +2049,7 @@ void _drbd_thread_stop(struct drbd_thread *thi, int restart, int wait)
 
 		thi->t_state = ns;
 		smp_mb();
+		/* thi->stop完了待ちイベントの生成 */
 		init_completion(&thi->stop);
 		if (thi->task != current)
 			force_sig(DRBD_SIGKILL, thi->task);
@@ -2051,7 +2057,7 @@ void _drbd_thread_stop(struct drbd_thread *thi, int restart, int wait)
 	spin_unlock_irqrestore(&thi->t_lock, flags);
 
 	if (wait)
-		wait_for_completion(&thi->stop);
+		wait_for_completion(&thi->stop);	/* thi->stopイベント待ち */
 }
 
 #ifdef CONFIG_SMP
@@ -3332,6 +3338,7 @@ STATIC void drbd_unplug_fn(struct request_queue *q)
 			 * XXX this might be a good addition to drbd_queue_work
 			 * anyways, to detect "double queuing" ... */
 			if (list_empty(&mdev->unplug_work.list))
+				/* data.workのsセマフォを待つプロセスの起床 */
 				drbd_queue_work(&mdev->data.work,
 						&mdev->unplug_work);
 		}
@@ -3366,10 +3373,10 @@ STATIC void drbd_set_defaults(struct drbd_conf *mdev)
 	/* Have to use that way, because the layout differs between
 	   big endian and little endian */
 	mdev->state = (union drbd_state) {
-		{ .role = R_SECONDARY,
+		{ .role = R_SECONDARY,			/* 初期状態：R_SECONDARY */
 		  .peer = R_UNKNOWN,
-		  .conn = C_STANDALONE,
-		  .disk = D_DISKLESS,
+		  .conn = C_STANDALONE,			/* 初期状態：C_STANDALONE */
+		  .disk = D_DISKLESS,			/* 初期状態：D_DISKLESS */
 		  .pdsk = D_UNKNOWN,
 		  .susp = 0,
 		  .susp_nod = 0,
@@ -3401,13 +3408,14 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 	atomic_set(&mdev->rs_sect_ev, 0);
 	atomic_set(&mdev->ap_in_flight, 0);
 	atomic_set(&mdev->md_io_in_use, 0);
-
+	/* Mutex初期化 */
 	mutex_init(&mdev->data.mutex);
 	mutex_init(&mdev->meta.mutex);
+	/* セマフォ初期化 */
 	sema_init(&mdev->data.work.s, 0);
 	sema_init(&mdev->meta.work.s, 0);
 	mutex_init(&mdev->state_mutex);
-
+	/* SPINLOCK初期化 */
 	spin_lock_init(&mdev->data.work.q_lock);
 	spin_lock_init(&mdev->meta.work.q_lock);
 
@@ -3415,7 +3423,7 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 	spin_lock_init(&mdev->req_lock);
 	spin_lock_init(&mdev->peer_seq_lock);
 	spin_lock_init(&mdev->epoch_lock);
-
+	/* リスト初期化 */
 	INIT_LIST_HEAD(&mdev->active_ee);
 	INIT_LIST_HEAD(&mdev->sync_ee);
 	INIT_LIST_HEAD(&mdev->done_ee);
@@ -3430,7 +3438,7 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 	INIT_LIST_HEAD(&mdev->md_sync_work.list);
 	INIT_LIST_HEAD(&mdev->start_resync_work.list);
 	INIT_LIST_HEAD(&mdev->bm_io_work.w.list);
-
+	/* コールバックセット */
 	mdev->resync_work.cb  = w_resync_timer;
 	mdev->unplug_work.cb  = w_send_write_hint;
 	mdev->go_diskless.cb  = w_go_diskless;
@@ -3451,7 +3459,7 @@ void drbd_init_set_defaults(struct drbd_conf *mdev)
 	mdev->start_resync_timer.data = (unsigned long) mdev;
 	mdev->request_timer.function = request_timer_fn;
 	mdev->request_timer.data = (unsigned long) mdev;
-
+	/* キュー初期化 */
 	init_waitqueue_head(&mdev->misc_wait);
 	init_waitqueue_head(&mdev->state_wait);
 	init_waitqueue_head(&mdev->net_cnt_wait);
@@ -3901,6 +3909,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 
 	q->backing_dev_info.congested_fn = drbd_congested;
 	q->backing_dev_info.congested_data = mdev;
+	/* デバイスの代替make_request関数を定義 */
 	/* bioインターフェース( BLOCK I/O requestキュー(bio)処理 )をセット */
 	/* このdrbd_make_requestセットがないと、Kernelの__make_request()というデフォルトのコールバックが呼ばれるらしい */
 	blk_queue_make_request(q, drbd_make_request);
@@ -4117,7 +4126,7 @@ void drbd_free_resources(struct drbd_conf *mdev)
 }
 
 /* meta data management */
-
+/* メタデータ管理情報 */
 struct meta_data_on_disk {
 	u64 la_size;           /* last agreed size. */
 	u64 uuid[UI_SIZE];   /* UUIDs. */
@@ -4468,6 +4477,7 @@ STATIC int w_bitmap_io(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 
 	drbd_clear_flag(mdev, BITMAP_IO);
 	smp_mb__after_clear_bit();
+	/* misc_waitイベントをアップ */
 	wake_up(&mdev->misc_wait);
 
 	if (work->done)
@@ -4570,6 +4580,7 @@ void drbd_queue_bitmap_io(struct drbd_conf *mdev,
 	spin_lock_irq(&mdev->req_lock);
 	drbd_set_flag(mdev, BITMAP_IO);
 	if (atomic_read(&mdev->ap_bio_cnt) == 0) {
+		/* data.workのsセマフォを待つプロセスの起床 */
 		if (!drbd_test_and_set_flag(mdev, BITMAP_IO_QUEUED))
 			drbd_queue_work(&mdev->data.work, &mdev->bm_io_work.w);
 	}
@@ -4628,7 +4639,7 @@ int drbd_md_test_flag(struct drbd_backing_dev *bdev, int flag)
 STATIC void md_sync_timer_fn(unsigned long data)
 {
 	struct drbd_conf *mdev = (struct drbd_conf *) data;
-
+	/* data.workのsセマフォを待つプロセスの起床 */
 	drbd_queue_work_front(&mdev->data.work, &mdev->md_sync_work);
 }
 

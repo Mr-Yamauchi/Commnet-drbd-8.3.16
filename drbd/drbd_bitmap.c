@@ -955,6 +955,7 @@ static BIO_ENDIO_TYPE bm_async_io_complete BIO_ENDIO_ARGS(struct bio *bio, int e
 
 	if (atomic_dec_and_test(&ctx->in_flight)) {
 		ctx->done = 1;
+		/* misc_waitイベントをアップ */
 		wake_up(&mdev->misc_wait);
 		kref_put(&ctx->kref, &bm_aio_ctx_destroy);
 	}

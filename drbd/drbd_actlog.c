@@ -74,7 +74,7 @@ void trace_drbd_resync(struct drbd_conf *mdev, int level, const char *fmt, ...)
 void *drbd_md_get_buffer(struct drbd_conf *mdev)
 {
 	int r;
-
+	/* misc_waitイベントを待ち */
 	wait_event(mdev->misc_wait,
 		   (r = atomic_cmpxchg(&mdev->md_io_in_use, 0, 1)) == 0 ||
 		   mdev->state.disk <= D_FAILED);
@@ -85,7 +85,7 @@ void *drbd_md_get_buffer(struct drbd_conf *mdev)
 void drbd_md_put_buffer(struct drbd_conf *mdev)
 {
 	if (atomic_dec_and_test(&mdev->md_io_in_use))
-		wake_up(&mdev->misc_wait);
+		wake_up(&mdev->misc_wait);			/* misc_waitイベントをアップ */
 }
 
 void wait_until_done_or_force_detached(struct drbd_conf *mdev, struct drbd_backing_dev *bdev,
@@ -94,7 +94,7 @@ void wait_until_done_or_force_detached(struct drbd_conf *mdev, struct drbd_backi
 	long dt = bdev->dc.disk_timeout * HZ / 10;
 	if (dt == 0)
 		dt = MAX_SCHEDULE_TIMEOUT;
-
+	/* misc_waitイベント待ち */
 	dt = wait_event_timeout(mdev->misc_wait,
 			*done || drbd_test_flag(mdev, FORCE_DETACH), dt);
 	if (dt == 0) {
@@ -301,12 +301,15 @@ void drbd_al_begin_io(struct drbd_conf *mdev, sector_t sector)
 		 * current->bio_tail list now.
 		 * we have to delegate updates to the activity log
 		 * to the worker thread. */
+		/* al_work.event完了待ちイベントの生成 */
 		init_completion(&al_work.event);
 		al_work.al_ext = al_ext;
 		al_work.enr = enr;
 		al_work.old_enr = al_ext->lc_number;
 		al_work.w.cb = w_al_write_transaction;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work_front(&mdev->data.work, &al_work.w);
+		/* al_work.eventイベント待ち */
 		wait_for_completion(&al_work.event);
 
 		mdev->al_writ_cnt++;
@@ -390,6 +393,7 @@ w_al_write_transaction(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 		dev_err(DEV,
 			"disk is %s, cannot start al transaction (-%d +%d)\n",
 			drbd_disk_str(mdev->state.disk), evicted, new_enr);
+		/* event待ち起床 */
 		complete(&((struct update_al_work *)w)->event);
 		return 1;
 	}
@@ -407,6 +411,7 @@ w_al_write_transaction(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 		dev_err(DEV,
 			"disk is %s, cannot write al transaction (-%d +%d)\n",
 			drbd_disk_str(mdev->state.disk), evicted, new_enr);
+		/* event待ち起床 */
 		complete(&((struct update_al_work *)w)->event);
 		put_ldev(mdev);
 		return 1;
@@ -415,6 +420,7 @@ w_al_write_transaction(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 	buffer = drbd_md_get_buffer(mdev); /* protects md_io_buffer, al_tr_cycle, ... */
 	if (!buffer) {
 		dev_err(DEV, "disk failed while waiting for md_io buffer\n");
+		/* event待ち起床 */
 		complete(&((struct update_al_work *)w)->event);
 		put_ldev(mdev);
 		return 1;
@@ -464,7 +470,7 @@ w_al_write_transaction(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 	mdev->al_tr_number++;
 
 	drbd_md_put_buffer(mdev);
-
+	/* event待ち起床 */
 	complete(&((struct update_al_work *)w)->event);
 	put_ldev(mdev);
 
@@ -810,6 +816,7 @@ STATIC void drbd_try_clear_on_disk_bm(struct drbd_conf *mdev, sector_t sector,
 			if (udw) {
 				udw->enr = ext->lce.lc_number;
 				udw->w.cb = w_update_odbm;
+				/* data.workのsセマフォを待つプロセスの起床 */
 				drbd_queue_work_front(&mdev->data.work, &udw->w);
 			} else {
 				dev_warn(DEV, "Could not kmalloc an udw\n");

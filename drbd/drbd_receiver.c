@@ -600,6 +600,7 @@ STATIC int drbd_recv(struct drbd_conf *mdev, void *buf, size_t size)
 	} else if (rv == 0) {
 		if (drbd_test_flag(mdev, DISCONNECT_SENT)) {
 			long t; /* time_left */
+			/* state_waitイベント待ち */
 			t = wait_event_timeout(mdev->state_wait, mdev->state.conn < C_CONNECTED,
 					       mdev->net_conf->ping_timeo * HZ/10);
 			if (t)
@@ -1185,6 +1186,7 @@ STATIC enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 			trace_drbd_epoch(mdev, epoch, EV_TRACE_FLUSH);
 			fw->w.cb = w_flush;
 			fw->epoch = epoch;
+			/* data.workのsセマフォを待つプロセスの起床 */
 			drbd_queue_work(&mdev->data.work, &fw->w);
 		} else {
 			dev_warn(DEV, "Could not kmalloc a flush_work obj\n");
@@ -1374,6 +1376,7 @@ int w_e_reissue(struct drbd_conf *mdev, struct drbd_work *w, int cancel) __relea
 	switch (err) {
 	case -ENOMEM:
 		e->w.cb = w_e_reissue;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &e->w);
 		/* retry later; fall through */
 	case 0:
@@ -3422,6 +3425,7 @@ STATIC int receive_uuids(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	   ongoing cluster wide state change is finished. That is important if
 	   we are primary and are detaching from our disk. We need to see the
 	   new disk state... */
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !drbd_test_flag(mdev, CLUSTER_ST_CHANGE));
 	if (mdev->state.conn >= C_CONNECTED && mdev->state.disk < D_INCONSISTENT)
 		updated_uuids |= drbd_set_ed_uuid(mdev, p_uuid[UI_CURRENT]);
@@ -3668,7 +3672,7 @@ STATIC int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 STATIC int receive_sync_uuid(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int data_size)
 {
 	struct p_rs_uuid *p = &mdev->data.rbuf.rs_uuid;
-
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait,
 		   mdev->state.conn == C_WF_SYNC_UUID ||
 		   mdev->state.conn == C_BEHIND ||
@@ -4083,7 +4087,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 				goto err_out;
 			}
 		}
-		/* コマンド処理の実行 */
+		/* 受信要求コマンド処理の実行 */
 		rv = drbd_cmd_handler[cmd].function(mdev, cmd, packet_size - shs);
 
 		if (unlikely(!rv)) {
@@ -4108,10 +4112,13 @@ STATIC void drbdd(struct drbd_conf *mdev)
 void drbd_flush_workqueue(struct drbd_conf *mdev)
 {
 	struct drbd_wq_barrier barr;
-
 	barr.w.cb = w_prev_work_done;
+	/* barr.done完了待ちイベントの生成 */
 	init_completion(&barr.done);
+	/* data.workのsセマフォを待つプロセスの起床 */
 	drbd_queue_work(&mdev->data.work, &barr.w);
+	/* barr.doneイベント待ち */
+	/*	w_prev_work_done()が実行されてイベント完了さるまで待つ */
 	wait_for_completion(&barr.done);
 }
 
@@ -4200,6 +4207,7 @@ STATIC void drbd_disconnect(struct drbd_conf *mdev)
 	mdev->rs_total = 0;
 	mdev->rs_failed = 0;
 	atomic_set(&mdev->rs_pending_cnt, 0);
+	/* misc_waitイベントをアップ */
 	wake_up(&mdev->misc_wait);
 
 	/* make sure syncer is stopped and w_resume_next_sg queued */
@@ -4258,6 +4266,7 @@ STATIC void drbd_disconnect(struct drbd_conf *mdev)
 
 	/* serialize with bitmap writeout triggered by the state change,
 	 * if any. */
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, !drbd_test_flag(mdev, BITMAP_IO));
 
 	/* tcp_close and release of sendpage pages can be deferred.  I don't
@@ -4605,6 +4614,7 @@ STATIC int got_RqSReply(struct drbd_conf *mdev, struct p_header80 *h)
 		dev_err(DEV, "Requested state change failed by peer: %s (%d)\n",
 		    drbd_set_st_err_str(retcode), retcode);
 	}
+	/* state_waitイベントアップ */
 	wake_up(&mdev->state_wait);
 
 	return true;
@@ -4621,7 +4631,7 @@ STATIC int got_PingAck(struct drbd_conf *mdev, struct p_header80 *h)
 	/* restore idle timeout */
 	mdev->meta.socket->sk->sk_rcvtimeo = mdev->net_conf->ping_int*HZ;
 	if (!drbd_test_and_set_flag(mdev, GOT_PING_ACK))
-		wake_up(&mdev->misc_wait);
+		wake_up(&mdev->misc_wait);	/* misc_waitイベントをアップ */
 
 	return true;
 }
@@ -4877,6 +4887,7 @@ STATIC int got_OVResult(struct drbd_conf *mdev, struct p_header80 *h)
 		w = kmalloc(sizeof(*w), GFP_NOIO);
 		if (w) {
 			w->cb = w_ov_finished;
+			/* data.workのsセマフォを待つプロセスの起床 */
 			drbd_queue_work_front(&mdev->data.work, w);
 		} else {
 			dev_err(DEV, "kmalloc(w) failed.");
@@ -4959,7 +4970,7 @@ int drbd_asender(struct drbd_thread *thi)
 		 * it may hurt latency if we cork without much to send */
 		if (!mdev->net_conf->no_cork &&
 			3 < atomic_read(&mdev->unacked_cnt))
-			drbd_tcp_cork(mdev->meta.socket);
+			drbd_tcp_cork(mdev->meta.socket);		/* 送信のタイミングを制御を有効 */
 		while (1) {
 			drbd_clear_flag(mdev, SIGNAL_ASENDER);
 			flush_signals(current);
@@ -4978,7 +4989,7 @@ int drbd_asender(struct drbd_thread *thi)
 		}
 		/* but unconditionally uncork unless disabled */
 		if (!mdev->net_conf->no_cork)
-			drbd_tcp_uncork(mdev->meta.socket);
+			drbd_tcp_uncork(mdev->meta.socket);		/* 送信のタイミングを制御を無効 */
 
 		/* short circuit, recv_msg would return EINTR anyways. */
 		if (signal_pending(current))
@@ -5006,6 +5017,7 @@ int drbd_asender(struct drbd_thread *thi)
 		} else if (rv == 0) {
 			if (drbd_test_flag(mdev, DISCONNECT_SENT)) {
 				long t; /* time_left */
+				/* state_waitイベント待ち */
 				t = wait_event_timeout(mdev->state_wait, mdev->state.conn < C_CONNECTED,
 						       mdev->net_conf->ping_timeo * HZ/10);
 				if (t)

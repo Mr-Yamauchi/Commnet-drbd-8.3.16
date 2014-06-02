@@ -161,6 +161,7 @@ static void queue_barrier(struct drbd_conf *mdev)
 	 * dec_ap_pending will be done in got_BarrierAck
 	 * or (on connection loss) in tl_clear.  */
 	inc_ap_pending(mdev);
+	/* data.workのsセマフォを待つプロセスの起床 */
 	drbd_queue_work(&mdev->data.work, &b->w);
 	drbd_set_flag(mdev, CREATE_BARRIER);
 }
@@ -223,6 +224,7 @@ static void _about_to_complete_local_write(struct drbd_conf *mdev,
 		slot = ee_hash_slot(mdev, req->sector);
 		hlist_for_each_entry(e, n, slot, collision) {
 			if (OVERLAPS) {
+				/* misc_waitイベントをアップ */
 				wake_up(&mdev->misc_wait);
 				break;
 			}
@@ -567,6 +569,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		req->w.cb = (req->rq_state & RQ_LOCAL_MASK)
 			? w_read_retry_remote
 			: w_send_read_req;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
 
@@ -609,6 +612,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		D_ASSERT(req->rq_state & RQ_NET_PENDING);
 		req->rq_state |= RQ_NET_QUEUED;
 		req->w.cb =  w_send_dblock;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 
 		/* close the epoch, in case it outgrew the limit */
@@ -620,6 +624,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 	case queue_for_send_oos:
 		req->rq_state |= RQ_NET_QUEUED;
 		req->w.cb =  w_send_oos;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
 
@@ -744,6 +749,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 
 		get_ldev(mdev);
 		req->w.cb = w_restart_disk_io;
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
 
@@ -760,6 +766,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		   We ensure that the peer was not rebooted */
 		if (!(req->rq_state & RQ_NET_OK)) {
 			if (req->w.cb) {
+				/* data.workのsセマフォを待つプロセスの起床 */
 				drbd_queue_work(&mdev->data.work, &req->w);
 				rv = req->rq_state & RQ_WRITE ? MR_WRITE : MR_READ;
 			}

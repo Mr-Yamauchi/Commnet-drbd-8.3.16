@@ -99,6 +99,7 @@ BIO_ENDIO_TYPE drbd_md_io_complete BIO_ENDIO_ARGS(struct bio *bio, int error)
 	 */
 	drbd_md_put_buffer(mdev);
 	md_io->done = 1;
+	/* misc_waitイベントをアップ */
 	wake_up(&mdev->misc_wait);
 	bio_put(bio);
 	put_ldev(mdev);
@@ -126,6 +127,7 @@ void drbd_endio_read_sec_final(struct drbd_epoch_entry *e) __releases(local)
 	spin_unlock_irqrestore(&mdev->req_lock, flags);
 
 	trace_drbd_ee(mdev, e, "read completed");
+	/* data.workのsセマフォを待つプロセスの起床 */
 	drbd_queue_work(&mdev->data.work, &e->w);
 	put_ldev(mdev);
 }
@@ -158,6 +160,7 @@ static void drbd_endio_write_sec_final(struct drbd_epoch_entry *e) __releases(lo
 		/* put_ldev actually happens below, once we come here again. */
 		__release(local);
 		spin_unlock_irqrestore(&mdev->req_lock, flags);
+		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &e->w);
 		return;
 	}
@@ -499,7 +502,7 @@ int w_resync_timer(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 void resync_timer_fn(unsigned long data)
 {
 	struct drbd_conf *mdev = (struct drbd_conf *) data;
-
+	/* data.workのsセマフォを待つプロセスの起床 */
 	if (list_empty(&mdev->resync_work.list))
 		drbd_queue_work(&mdev->data.work, &mdev->resync_work);
 }
@@ -830,7 +833,7 @@ STATIC int w_make_ov_request(struct drbd_conf *mdev, struct drbd_work *w, int ca
 void start_resync_timer_fn(unsigned long data)
 {
 	struct drbd_conf *mdev = (struct drbd_conf *) data;
-
+	/* data.workのsセマフォを待つプロセスの起床 */
 	drbd_queue_work(&mdev->data.work, &mdev->start_resync_work);
 }
 
@@ -870,6 +873,7 @@ STATIC void ping_peer(struct drbd_conf *mdev)
 {
 	drbd_clear_flag(mdev, GOT_PING_ACK);
 	request_ping(mdev);
+	/* misc_waitイベントを待ち */
 	wait_event(mdev->misc_wait,
 		   drbd_test_flag(mdev, GOT_PING_ACK) || mdev->state.conn < C_CONNECTED);
 }
@@ -897,6 +901,7 @@ int drbd_resync_finished(struct drbd_conf *mdev)
 		w = kmalloc(sizeof(struct drbd_work), GFP_ATOMIC);
 		if (w) {
 			w->cb = w_resync_finished;
+			/* data.workのsセマフォを待つプロセスの起床 */
 			drbd_queue_work(&mdev->data.work, w);
 			return 1;
 		}
@@ -1329,6 +1334,7 @@ int w_e_end_ov_reply(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 int w_prev_work_done(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 {
 	struct drbd_wq_barrier *b = container_of(w, struct drbd_wq_barrier, w);
+	/* event待ち起床 */
 	complete(&b->done);
 	return 1;
 }
@@ -1758,16 +1764,17 @@ int drbd_worker(struct drbd_thread *thi)
 		drbd_thread_current_set_cpu(mdev);
 
 		if (down_trylock(&mdev->data.work.s)) {
+			/* セマフォ(data.work.s)が取得出来た時 */
 			mutex_lock(&mdev->data.mutex);
 			if (mdev->data.socket && !mdev->net_conf->no_cork)
-				drbd_tcp_uncork(mdev->data.socket);
+				drbd_tcp_uncork(mdev->data.socket);	/* 送信のタイミングを制御を無効 */
 			mutex_unlock(&mdev->data.mutex);
-			/* 割り込み有、セマフォ待ち */
+			/* 割り込み有、セマフォ(data.work.s)待ちによる事象待ち合わせ */
 			intr = down_interruptible(&mdev->data.work.s);
 
 			mutex_lock(&mdev->data.mutex);
 			if (mdev->data.socket  && !mdev->net_conf->no_cork)
-				drbd_tcp_cork(mdev->data.socket);
+				drbd_tcp_cork(mdev->data.socket);	/* 送信のタイミングを制御を有効 */
 			mutex_unlock(&mdev->data.mutex);
 		}
 

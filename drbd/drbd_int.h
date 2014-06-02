@@ -834,12 +834,12 @@ static inline enum drbd_thread_state get_t_state(struct drbd_thread *thi)
 }
 
 struct drbd_work;
-/* 作業コールバック */
+/* drbd_workコールバック */
 typedef int (*drbd_work_cb)(struct drbd_conf *, struct drbd_work *, int cancel);
-/* 作業領域 */
+/* drbd_work領域 */
 struct drbd_work {
 	struct list_head list;	/* リスト */
-	drbd_work_cb cb;		/* 作業コールバック */
+	drbd_work_cb cb;		/* drbd_workコールバック */
 };
 
 struct drbd_tl_epoch;
@@ -1073,7 +1073,7 @@ struct drbd_work_queue {
 	struct semaphore s; /* producers up it, worker down()s it */
 	spinlock_t q_lock;  /* to protect the list. */
 };
-
+/* drbd_socket構造 */
 struct drbd_socket {
 	struct drbd_work_queue work;
 	struct mutex mutex;
@@ -1159,11 +1159,12 @@ struct drbd_conf {
 	struct drbd_backing_dev *ldev __protected_by(local);
 
 	sector_t p_size;     /* partner's disk size */
-	struct request_queue *rq_queue;
-	struct block_device *this_bdev;
-	struct gendisk	    *vdisk;
-
+	struct request_queue *rq_queue;		/* ブロックデバイスキュー */
+	struct block_device *this_bdev;		/* ブロックデバイス管理構造体 */
+	struct gendisk	    *vdisk;			/* ブロックデバイス情報(仮想的なディスクの作成) */
+										/* データ関連drbd_socket情報 */
 	struct drbd_socket data; /* data/barrier/cstate/parameter packets */
+										/* メタデータ関連drbd_socket情報 */
 	struct drbd_socket meta; /* ping/ack (metadata) packets */
 	int agreed_pro_version;  /* actually used protocol version */
 	unsigned long last_received; /* in jiffies, either socket */
@@ -1247,9 +1248,11 @@ struct drbd_conf {
 
 	unsigned long last_reattach_jif;
 	unsigned long last_reconnect_jif;
+	/* スレッド */
 	struct drbd_thread receiver;
 	struct drbd_thread worker;
 	struct drbd_thread asender;
+	/* ビットマップ */
 	struct drbd_bitmap *bitmap;
 	unsigned long bm_resync_fo; /* bit offset for drbd_bm_find_next */
 
@@ -1887,19 +1890,19 @@ static inline int drbd_setsockopt(struct socket *sock, int level, int optname,
 					    optlen);
 	return err;
 }
-
+/* 送信のタイミングを制御を有効 */
 static inline void drbd_tcp_cork(struct socket *sock)
 {
 	int __user val = 1;
-	/* TCP_CORK : アプリ側で送信のタイミングを制御 */
+	/* TCP_CORK : アプリ側で送信のタイミングを制御を有効 */
 	(void) drbd_setsockopt(sock, SOL_TCP, TCP_CORK,
 			(char __user *)&val, sizeof(val));
 }
-
+/* 送信のタイミングを制御を無効 */
 static inline void drbd_tcp_uncork(struct socket *sock)
 {
 	int __user val = 0;
-	/* TCP_CORK : アプリ側で送信のタイミングを制御 */
+	/* TCP_CORK : アプリ側で送信のタイミングを制御を無効 */
 	(void) drbd_setsockopt(sock, SOL_TCP, TCP_CORK,
 			(char __user *)&val, sizeof(val));
 }
@@ -2054,6 +2057,7 @@ static inline int drbd_ee_has_active_page(struct drbd_epoch_entry *e)
 
 static inline void drbd_state_lock(struct drbd_conf *mdev)
 {
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait,
 		   !drbd_test_and_set_flag(mdev, CLUSTER_ST_CHANGE));
 }
@@ -2061,6 +2065,7 @@ static inline void drbd_state_lock(struct drbd_conf *mdev)
 static inline void drbd_state_unlock(struct drbd_conf *mdev)
 {
 	drbd_clear_flag(mdev, CLUSTER_ST_CHANGE);
+	/* misc_waitイベントをアップ */
 	wake_up(&mdev->misc_wait);
 }
 
@@ -2272,19 +2277,19 @@ static inline sector_t drbd_md_ss__(struct drbd_conf *mdev,
 		return 0;
 	}
 }
-
+/* drbd_work_queueのsセマフォを待つプロセスの起床 */
 static inline void
 drbd_queue_work_front(struct drbd_work_queue *q, struct drbd_work *w)
 {
 	unsigned long flags;
 	spin_lock_irqsave(&q->q_lock, flags);
 	list_add(&w->list, &q->q);
-	/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */
+	/* セマフォ解放(セマフォ待ちプロセスの起床) */
 	up(&q->s); /* within the spinlock,
 		      see comment near end of drbd_worker() */
 	spin_unlock_irqrestore(&q->q_lock, flags);
 }
-
+/* drbd_work_queueのsセマフォを待つプロセスの起床 */
 static inline void
 drbd_queue_work(struct drbd_work_queue *q, struct drbd_work *w)
 {
@@ -2292,7 +2297,7 @@ drbd_queue_work(struct drbd_work_queue *q, struct drbd_work *w)
 	spin_lock_irqsave(&q->q_lock, flags);
 	/* WORKのリストにキューを追加する */
 	list_add_tail(&w->list, &q->q);
-	/* 確保しているセマフォ構造体のセマフォ資源を1つ返す */
+	/* セマフォ解放(セマフォ待ちプロセスの起床) */
 	up(&q->s); /* within the spinlock,
 		      see comment near end of drbd_worker() */
 	spin_unlock_irqrestore(&q->q_lock, flags);
@@ -2381,7 +2386,7 @@ static inline void inc_ap_pending(struct drbd_conf *mdev)
 #define dec_ap_pending(mdev)	do {				\
 	typecheck(struct drbd_conf *, mdev);			\
 	if (atomic_dec_and_test(&mdev->ap_pending_cnt))		\
-		wake_up(&mdev->misc_wait);			\
+		wake_up(&mdev->misc_wait);				/* misc_waitイベントをアップ */ \
 	ERR_IF_CNT_IS_NEGATIVE(ap_pending_cnt); } while (0)
 
 /* counts how many resync-related answers we still expect from the peer
@@ -2475,6 +2480,7 @@ static inline void put_ldev(struct drbd_conf *mdev)
 			if (!drbd_test_and_set_flag(mdev, GO_DISKLESS))
 				drbd_queue_work(&mdev->data.work, &mdev->go_diskless);
 		}
+		/* misc_waitイベントをアップ */
 		wake_up(&mdev->misc_wait);
 	}
 }
@@ -2682,7 +2688,7 @@ static inline void inc_ap_bio(struct drbd_conf *mdev, int count)
 	 *
 	 * to avoid races with the reconnect code,
 	 * we need to atomic_inc within the spinlock. */
-
+	/* misc_waitイベント待ち */
 	wait_event(mdev->misc_wait, inc_ap_bio_cond(mdev, count));
 }
 
@@ -2702,7 +2708,7 @@ static inline void dec_ap_bio(struct drbd_conf *mdev)
 	 * maybe rather introduce some type of hysteresis?
 	 * e.g. (ap_bio == mxb/2 || ap_bio == 0) ? */
 	if (ap_bio < mxb)
-		wake_up(&mdev->misc_wait);
+		wake_up(&mdev->misc_wait);	/* misc_waitイベントをアップ */
 }
 
 static inline int drbd_set_ed_uuid(struct drbd_conf *mdev, u64 val)
