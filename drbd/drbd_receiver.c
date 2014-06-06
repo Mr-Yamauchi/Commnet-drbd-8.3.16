@@ -1184,7 +1184,7 @@ STATIC enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 		fw = kmalloc(sizeof(*fw), GFP_ATOMIC);
 		if (fw) {
 			trace_drbd_epoch(mdev, epoch, EV_TRACE_FLUSH);
-			fw->w.cb = w_flush;
+			fw->w.cb = w_flush;		/* コールバックのセット */
 			fw->epoch = epoch;
 			/* data.workのsセマフォを待つプロセスの起床 */
 			drbd_queue_work(&mdev->data.work, &fw->w);
@@ -1371,11 +1371,11 @@ int w_e_reissue(struct drbd_conf *mdev, struct drbd_work *w, int cancel) __relea
 	/* we still have a local reference,
 	 * get_ldev was done in receive_Data. */
 
-	e->w.cb = e_end_block;
+	e->w.cb = e_end_block;			/* コールバックのセット */
 	err = drbd_submit_ee(mdev, e, WRITE, DRBD_FAULT_DT_WR);
 	switch (err) {
 	case -ENOMEM:
-		e->w.cb = w_e_reissue;
+		e->w.cb = w_e_reissue;		/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &e->w);
 		/* retry later; fall through */
@@ -1697,7 +1697,7 @@ STATIC int recv_resync_read(struct drbd_conf *mdev, sector_t sector, int data_si
 	inc_unacked(mdev);
 	/* corresponding dec_unacked() in e_end_resync_block()
 	 * respective _drbd_clear_done_ee */
-
+	/* コールバックのセット */
 	e->w.cb = e_end_resync_block;
 
 	spin_lock_irq(&mdev->req_lock);
@@ -1963,7 +1963,7 @@ STATIC int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 		put_ldev(mdev);
 		return false;
 	}
-
+	/* コールバックのセット */
 	e->w.cb = e_end_block;
 
 	dp_flags = be32_to_cpu(p->dp_flags);
@@ -2107,7 +2107,8 @@ STATIC int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 				dev_alert(DEV, "Concurrent write! [DISCARD BY FLAG] sec=%llus\n",
 				     (unsigned long long)sector);
 				inc_unacked(mdev);
-				e->w.cb = e_send_discard_ack;
+				e->w.cb = e_send_discard_ack;	/* コールバックのセット */
+				/* mdev->done_eeのリストにe->w.listのリストを追加する */
 				list_add_tail(&e->w.list, &mdev->done_ee);
 
 				spin_unlock_irq(&mdev->req_lock);
@@ -2329,13 +2330,13 @@ STATIC int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 
 	switch (cmd) {
 	case P_DATA_REQUEST:
-		e->w.cb = w_e_end_data_req;
+		e->w.cb = w_e_end_data_req;	/* コールバックのセット */
 		fault_type = DRBD_FAULT_DT_RD;
 		/* application IO, don't drbd_rs_begin_io */
 		goto submit;
 
 	case P_RS_DATA_REQUEST:
-		e->w.cb = w_e_end_rsdata_req;
+		e->w.cb = w_e_end_rsdata_req;	/* コールバックのセット */
 		fault_type = DRBD_FAULT_RS_RD;
 		/* used in the sector offset progress display */
 		mdev->bm_resync_fo = BM_SECT_TO_BIT(sector);
@@ -2359,13 +2360,13 @@ STATIC int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 
 		if (cmd == P_CSUM_RS_REQUEST) {
 			D_ASSERT(mdev->agreed_pro_version >= 89);
-			e->w.cb = w_e_end_csum_rs_req;
+			e->w.cb = w_e_end_csum_rs_req;	/* コールバックのセット */
 			/* used in the sector offset progress display */
 			mdev->bm_resync_fo = BM_SECT_TO_BIT(sector);
 		} else if (cmd == P_OV_REPLY) {
 			/* track progress, we may need to throttle */
 			atomic_add(size >> 9, &mdev->rs_sect_in);
-			e->w.cb = w_e_end_ov_reply;
+			e->w.cb = w_e_end_ov_reply;		/* コールバックのセット */
 			dec_rs_pending(mdev);
 			/* drbd_rs_begin_io done when we sent this request,
 			 * but accounting still needs to be done. */
@@ -2389,7 +2390,7 @@ STATIC int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 			dev_info(DEV, "Online Verify start sector: %llu\n",
 					(unsigned long long)sector);
 		}
-		e->w.cb = w_e_end_ov_req;
+		e->w.cb = w_e_end_ov_req;		/* コールバックのセット */
 		fault_type = DRBD_FAULT_RS_RD;
 		break;
 
@@ -2433,6 +2434,7 @@ submit_for_resync:
 submit:
 	inc_unacked(mdev);
 	spin_lock_irq(&mdev->req_lock);
+	/* mdev->read_eeのリストにe->w.listのリストを追加する */
 	list_add_tail(&e->w.list, &mdev->read_ee);
 	spin_unlock_irq(&mdev->req_lock);
 
@@ -4112,7 +4114,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 void drbd_flush_workqueue(struct drbd_conf *mdev)
 {
 	struct drbd_wq_barrier barr;
-	barr.w.cb = w_prev_work_done;
+	barr.w.cb = w_prev_work_done;				/* コールバックのセット */
 	/* barr.done完了待ちイベントの生成 */
 	init_completion(&barr.done);
 	/* data.workのsセマフォを待つプロセスの起床 */
@@ -4324,6 +4326,7 @@ STATIC int drbd_send_handshake(struct drbd_conf *mdev)
 	memset(p, 0, sizeof(*p));
 	p->protocol_min = cpu_to_be32(PRO_VERSION_MIN);
 	p->protocol_max = cpu_to_be32(PRO_VERSION_MAX);
+	/*mdev->data.socketを利用してメッセージを送信 */
 	ok = _drbd_send_cmd( mdev, mdev->data.socket, P_HAND_SHAKE,
 			     (struct p_header80 *)p, sizeof(*p), 0 );
 	mutex_unlock(&mdev->data.mutex);
@@ -4619,13 +4622,13 @@ STATIC int got_RqSReply(struct drbd_conf *mdev, struct p_header80 *h)
 
 	return true;
 }
-
+/* P_PING受信処理 */
 STATIC int got_Ping(struct drbd_conf *mdev, struct p_header80 *h)
 {
 	return drbd_send_ping_ack(mdev);
 
 }
-
+/* P_PING_ACK受信処理 */
 STATIC int got_PingAck(struct drbd_conf *mdev, struct p_header80 *h)
 {
 	/* restore idle timeout */
@@ -4915,8 +4918,8 @@ static struct asender_cmd *get_asender_cmd(int cmd)
 		/* anything missing from this table is in
 		 * the drbd_cmd_handler (drbd_default_handler) table,
 		 * see the beginning of drbdd() */
-	[P_PING]	    = { sizeof(struct p_header80), got_Ping },
-	[P_PING_ACK]	    = { sizeof(struct p_header80), got_PingAck },
+	[P_PING]	    = { sizeof(struct p_header80), got_Ping }, /* P_PING受信処理 */
+	[P_PING_ACK]	    = { sizeof(struct p_header80), got_PingAck }, /* P_PING_ACK受信処理 */
 	[P_RECV_ACK]	    = { sizeof(struct p_block_ack), got_BlockAck },
 	[P_WRITE_ACK]	    = { sizeof(struct p_block_ack), got_BlockAck },
 	[P_RS_WRITE_ACK]    = { sizeof(struct p_block_ack), got_BlockAck },
@@ -4960,7 +4963,7 @@ int drbd_asender(struct drbd_thread *thi)
 	while (get_t_state(thi) == Running) {
 		drbd_thread_current_set_cpu(mdev);
 		if (drbd_test_and_clear_flag(mdev, SEND_PING)) {
-			ERR_IF(!drbd_send_ping(mdev)) goto reconnect;
+			ERR_IF(!drbd_send_ping(mdev)) goto reconnect; /* mdev->meta.socketを使ってP_PINGメッセージを送信する */
 			mdev->meta.socket->sk->sk_rcvtimeo =
 				mdev->net_conf->ping_timeo*HZ/10;
 			ping_timeout_active = 1;

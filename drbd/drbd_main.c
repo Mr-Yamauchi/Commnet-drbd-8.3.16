@@ -415,7 +415,7 @@ static void _tl_restart(struct drbd_conf *mdev, enum drbd_req_event what)
 			if (what == resend) {
 				b->n_writes = n_writes;
 				if (b->w.cb == NULL) {
-					b->w.cb = w_send_barrier;
+					b->w.cb = w_send_barrier;			/* コールバックのセット */
 					inc_ap_pending(mdev);
 					drbd_set_flag(mdev, CREATE_BARRIER);
 				}
@@ -1490,7 +1490,7 @@ __drbd_set_state(struct drbd_conf *mdev, union drbd_state ns,
 		ascw->os = os;
 		ascw->ns = ns;
 		ascw->flags = flags;
-		ascw->w.cb = w_after_state_ch;
+		ascw->w.cb = w_after_state_ch;	/* コールバックのセット */
 		ascw->done = done;
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &ascw->w);
@@ -2143,7 +2143,7 @@ int drbd_send_cmd(struct drbd_conf *mdev, int use_data_socket,
 {
 	int ok = 0;
 	struct socket *sock;
-
+	/* 利用するmutex,sokcetを決定する */
 	if (use_data_socket) {
 		mutex_lock(&mdev->data.mutex);
 		sock = mdev->data.socket;
@@ -2226,7 +2226,7 @@ int drbd_send_sync_param(struct drbd_conf *mdev, struct syncer_conf *sc)
 			strcpy(p->verify_alg, mdev->sync_conf.verify_alg);
 		if (apv >= 89)
 			strcpy(p->csums_alg, mdev->sync_conf.csums_alg);
-
+		/*mdev->data.socketを利用してメッセージを送信 */
 		rv = _drbd_send_cmd(mdev, sock, cmd, &p->head, size, 0);
 	} else
 		rv = 0; /* not ok */
@@ -2274,7 +2274,7 @@ int drbd_send_protocol(struct drbd_conf *mdev)
 
 	if (mdev->agreed_pro_version >= 87)
 		strcpy(p->integrity_alg, mdev->net_conf->integrity_alg);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	rv = drbd_send_cmd(mdev, USE_DATA_SOCKET, P_PROTOCOL,
 			   (struct p_header80 *)p, size);
 	kfree(p);
@@ -2302,7 +2302,7 @@ int _drbd_send_uuids(struct drbd_conf *mdev, u64 uuid_flags)
 	p.uuid[UI_FLAGS] = cpu_to_be64(uuid_flags);
 
 	put_ldev(mdev);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_DATA_SOCKET, P_UUIDS,
 			     (struct p_header80 *)&p, sizeof(p));
 }
@@ -2351,7 +2351,7 @@ int drbd_gen_and_send_sync_uuid(struct drbd_conf *mdev)
 	drbd_print_uuids(mdev, "updated sync UUID");
 	drbd_md_sync(mdev);
 	p.uuid = cpu_to_be64(uuid);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_DATA_SOCKET, P_SYNC_UUID,
 			     (struct p_header80 *)&p, sizeof(p));
 }
@@ -2389,7 +2389,7 @@ int drbd_send_sizes(struct drbd_conf *mdev, int trigger_reply, enum dds_flags fl
 	p.max_bio_size = cpu_to_be32(max_bio_size);
 	p.queue_order_type = cpu_to_be16(q_order_type);
 	p.dds_flags = cpu_to_be16(flags);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	ok = drbd_send_cmd(mdev, USE_DATA_SOCKET, P_SIZES,
 			   (struct p_header80 *)&p, sizeof(p));
 	return ok;
@@ -2416,6 +2416,7 @@ int drbd_send_current_state_(struct drbd_conf *mdev, const char *func, unsigned 
 
 	if (likely(sock != NULL)) {
 		drbd_state_dbg(mdev, mdev->state.seq, func, line, "send-current", mdev->state);
+		/*mdev->data.socketを利用してメッセージを送信 */
 		ok = _drbd_send_cmd(mdev, sock, P_STATE,
 				    (struct p_header80 *)&p, sizeof(p), 0);
 	}
@@ -2448,6 +2449,7 @@ int drbd_send_state_(struct drbd_conf *mdev, union drbd_state state, const char 
 	sock = mdev->data.socket;
 
 	if (likely(sock != NULL)) {
+		/*mdev->data.socketを利用してメッセージを送信 */
 		drbd_state_dbg(mdev, state.seq, func, line, "send", state);
 		ok = _drbd_send_cmd(mdev, sock, P_STATE,
 				    (struct p_header80 *)&p, sizeof(p), 0);
@@ -2465,7 +2467,7 @@ int drbd_send_state_req(struct drbd_conf *mdev,
 
 	p.mask    = cpu_to_be32(mask.i);
 	p.val     = cpu_to_be32(val.i);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_DATA_SOCKET, P_STATE_CHG_REQ,
 			     (struct p_header80 *)&p, sizeof(p));
 }
@@ -2475,7 +2477,7 @@ int drbd_send_sr_reply(struct drbd_conf *mdev, enum drbd_state_rv retcode)
 	struct p_req_state_reply p;
 
 	p.retcode    = cpu_to_be32(retcode);
-
+	/*mdev->meta.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_META_SOCKET, P_STATE_CHG_REPLY,
 			     (struct p_header80 *)&p, sizeof(p));
 }
@@ -2596,6 +2598,7 @@ send_bitmap_rle_or_plain(struct drbd_conf *mdev,
 
 	if (len) {
 		DCBP_set_code(p, RLE_VLI_Bits);
+		/*mdev->data.socketを利用してメッセージを送信 */
 		ok = _drbd_send_cmd(mdev, mdev->data.socket, P_COMPRESSED_BITMAP, h,
 			sizeof(*p) + len, 0);
 
@@ -2611,6 +2614,7 @@ send_bitmap_rle_or_plain(struct drbd_conf *mdev,
 		len = num_words * sizeof(long);
 		if (len)
 			drbd_bm_get_lel(mdev, c->word_offset, num_words, (unsigned long*)h->payload);
+		/*mdev->data.socketを利用してメッセージを送信 */
 		ok = _drbd_send_cmd(mdev, mdev->data.socket, P_BITMAP,
 				   h, sizeof(struct p_header80) + len, 0);
 		c->word_offset += num_words;
@@ -2700,6 +2704,7 @@ int drbd_send_b_ack(struct drbd_conf *mdev, u32 barrier_nr, u32 set_size)
 
 	if (mdev->state.conn < C_CONNECTED)
 		return false;
+	/*mdev->meta.socketを利用してメッセージを送信 */
 	ok = drbd_send_cmd(mdev, USE_META_SOCKET, P_BARRIER_ACK,
 			(struct p_header80 *)&p, sizeof(p));
 	return ok;
@@ -2728,6 +2733,7 @@ STATIC int _drbd_send_ack(struct drbd_conf *mdev, enum drbd_packets cmd,
 
 	if (!mdev->meta.socket || mdev->state.conn < C_CONNECTED)
 		return false;
+	/*mdev->meta.socketを利用してメッセージを送信 */
 	ok = drbd_send_cmd(mdev, USE_META_SOCKET, cmd,
 				(struct p_header80 *)&p, sizeof(p));
 	return ok;
@@ -2786,7 +2792,7 @@ int drbd_send_drequest(struct drbd_conf *mdev, int cmd,
 	p.sector   = cpu_to_be64(sector);
 	p.block_id = block_id;
 	p.blksize  = cpu_to_be32(size);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	ok = drbd_send_cmd(mdev, USE_DATA_SOCKET, cmd,
 				(struct p_header80 *)&p, sizeof(p));
 	return ok;
@@ -2826,7 +2832,7 @@ int drbd_send_ov_request(struct drbd_conf *mdev, sector_t sector, int size)
 	p.sector   = cpu_to_be64(sector);
 	p.block_id = BE_DRBD_MAGIC + 0xbabe;
 	p.blksize  = cpu_to_be32(size);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	ok = drbd_send_cmd(mdev, USE_DATA_SOCKET, P_OV_REQUEST,
 			   (struct p_header80 *)&p, sizeof(p));
 	return ok;
@@ -3142,7 +3148,7 @@ int drbd_send_oos(struct drbd_conf *mdev, struct drbd_request *req)
 
 	p.sector  = cpu_to_be64(req->sector);
 	p.blksize = cpu_to_be32(req->size);
-
+	/*mdev->data.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_DATA_SOCKET, P_OUT_OF_SYNC, &p.head, sizeof(p));
 }
 

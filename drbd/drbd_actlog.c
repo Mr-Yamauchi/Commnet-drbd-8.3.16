@@ -306,6 +306,7 @@ void drbd_al_begin_io(struct drbd_conf *mdev, sector_t sector)
 		al_work.al_ext = al_ext;
 		al_work.enr = enr;
 		al_work.old_enr = al_ext->lc_number;
+		/* コールバックのセット */
 		al_work.w.cb = w_al_write_transaction;
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work_front(&mdev->data.work, &al_work.w);
@@ -815,7 +816,7 @@ STATIC void drbd_try_clear_on_disk_bm(struct drbd_conf *mdev, sector_t sector,
 			udw = kmalloc(sizeof(*udw), GFP_ATOMIC);
 			if (udw) {
 				udw->enr = ext->lce.lc_number;
-				udw->w.cb = w_update_odbm;
+				udw->w.cb = w_update_odbm;			/* コールバックのセット */
 				/* data.workのsセマフォを待つプロセスの起床 */
 				drbd_queue_work_front(&mdev->data.work, &udw->w);
 			} else {

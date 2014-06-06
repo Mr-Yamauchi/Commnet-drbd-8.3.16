@@ -156,7 +156,7 @@ static void drbd_endio_write_sec_final(struct drbd_epoch_entry *e) __releases(lo
 		spin_lock_irqsave(&mdev->req_lock, flags);
 		list_del(&e->w.list);
 		e->flags = (e->flags & ~EE_WAS_ERROR) | EE_RESUBMITTED;
-		e->w.cb = w_e_reissue;
+		e->w.cb = w_e_reissue;			/* コールバックのセット */
 		/* put_ldev actually happens below, once we come here again. */
 		__release(local);
 		spin_unlock_irqrestore(&mdev->req_lock, flags);
@@ -462,7 +462,7 @@ STATIC int read_for_csum(struct drbd_conf *mdev, sector_t sector, int size)
 	if (!e)
 		goto defer;
 
-	e->w.cb = w_e_send_csum;
+	e->w.cb = w_e_send_csum;					/* コールバックのセット */
 	spin_lock_irq(&mdev->req_lock);
 	list_add(&e->w.list, &mdev->read_ee);
 	spin_unlock_irq(&mdev->req_lock);
@@ -1043,6 +1043,7 @@ static void move_to_net_ee_or_free(struct drbd_conf *mdev, struct drbd_epoch_ent
 		atomic_add(i, &mdev->pp_in_use_by_net);
 		atomic_sub(i, &mdev->pp_in_use);
 		spin_lock_irq(&mdev->req_lock);
+		/* mdev->net_eeのリストにe->w.listのリストを追加する */
 		list_add_tail(&e->w.list, &mdev->net_ee);
 		spin_unlock_irq(&mdev->req_lock);
 		wake_up(&drbd_pp_wait);
@@ -1363,6 +1364,7 @@ int w_send_barrier(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 	/* inc_ap_pending was done where this was queued.
 	 * dec_ap_pending will be done in got_BarrierAck
 	 * or (on connection loss) in w_clear_epoch.  */
+	/*mdev->data.socketを利用してメッセージを送信 */
 	ok = _drbd_send_cmd(mdev, mdev->data.socket, P_BARRIER,
 				(struct p_header80 *)p, sizeof(*p), 0);
 	drbd_put_data_sock(mdev);
@@ -1764,7 +1766,7 @@ int drbd_worker(struct drbd_thread *thi)
 		drbd_thread_current_set_cpu(mdev);
 
 		if (down_trylock(&mdev->data.work.s)) {
-			/* セマフォ(data.work.s)が取得出来た時 */
+			/* セマフォ(data.work.s)待ちへ */
 			mutex_lock(&mdev->data.mutex);
 			if (mdev->data.socket && !mdev->net_conf->no_cork)
 				drbd_tcp_uncork(mdev->data.socket);	/* 送信のタイミングを制御を無効 */
@@ -1809,10 +1811,12 @@ int drbd_worker(struct drbd_thread *thi)
 			spin_unlock_irq(&mdev->data.work.q_lock);
 			continue;
 		}
+		/* mdev->data.work.qのリストを取り出す */
 		w = list_entry(mdev->data.work.q.next, struct drbd_work, list);
+		/* 取り出したデータはリストから削除 */
 		list_del_init(&w->list);
 		spin_unlock_irq(&mdev->data.work.q_lock);
-		/* 作業コールバックを実行する */
+		/* 取り出したリストデータの作業コールバックを実行する */
 		if (!w->cb(mdev, w, mdev->state.conn < C_CONNECTED)) {
 			/* dev_warn(DEV, "worker: a callback failed! \n"); */
 			if (mdev->state.conn >= C_CONNECTED)
@@ -1833,11 +1837,11 @@ int drbd_worker(struct drbd_thread *thi)
 		spin_unlock_irq(&mdev->data.work.q_lock);
 
 		while (!list_empty(&work_list)) {	/* リストが空でない間くり返す */
-			/* 先頭リストを取り出す */
+			/* work_listからリストを取り出す */
 			w = list_entry(work_list.next, struct drbd_work, list);
 			/* 取り出したリストを削除する */
 			list_del_init(&w->list);
-			/* 取り出したコールバックを実行する */
+			/* 取り出したリストデータの取り出したコールバックを実行する */
 			w->cb(mdev, w, 1);
 			i++; /* dead debugging code */
 		}
@@ -1845,6 +1849,7 @@ int drbd_worker(struct drbd_thread *thi)
 			可能性のある割り込みがそのCPU上で発生することを抑制する */
 		spin_lock_irq(&mdev->data.work.q_lock);
 	}
+	/* セマフォ初期化による解放 */
 	sema_init(&mdev->data.work.s, 0);
 	/* DANGEROUS race: if someone did queue his work within the spinlock,
 	 * but up() ed outside the spinlock, we could get an up() on the

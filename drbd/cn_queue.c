@@ -127,7 +127,7 @@ int cn_queue_add_callback(struct cn_queue_dev *dev, char *name, struct cb_id *id
 		}
 	}
 	if (!found)
-		list_add_tail(&cbq->callback_entry, &dev->queue_list);
+		list_add_tail(&cbq->callback_entry, &dev->queue_list); 	/* dev->queue_listのリストにcbq->callback_entryのリストを追加する */
 	spin_unlock_bh(&dev->queue_lock);
 
 	if (found) {

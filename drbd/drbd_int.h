@@ -1067,15 +1067,15 @@ enum bm_flag {
 	 * only concurrent bulk operations are locked out. */
 	BM_LOCKED_CHANGE_ALLOWED = BM_IS_LOCKED,
 };
-
+/* 作業キュー構造 */
 struct drbd_work_queue {
-	struct list_head q;
-	struct semaphore s; /* producers up it, worker down()s it */
-	spinlock_t q_lock;  /* to protect the list. */
+	struct list_head q;	/* リスト */
+	struct semaphore s; /* セマフォ *//* producers up it, worker down()s it */
+	spinlock_t q_lock;  /* SPINLOCK *//* to protect the list. */
 };
 /* drbd_socket構造 */
 struct drbd_socket {
-	struct drbd_work_queue work;
+	struct drbd_work_queue work;	/* 作業キュー */
 	struct mutex mutex;
 	struct socket    *socket;
 	/* this way we get our
@@ -1188,7 +1188,7 @@ struct drbd_conf {
 	/* Used after attach while negotiating new disk state. */
 	union drbd_state new_state_tmp;
 
-	union drbd_state state;
+	union drbd_state state;				/* 状態 */
 	wait_queue_head_t misc_wait;
 	wait_queue_head_t state_wait;  /* upon each state change. */
 	wait_queue_head_t net_cnt_wait;
@@ -2295,7 +2295,7 @@ drbd_queue_work(struct drbd_work_queue *q, struct drbd_work *w)
 {
 	unsigned long flags;
 	spin_lock_irqsave(&q->q_lock, flags);
-	/* WORKのリストにキューを追加する */
+	/* drbd_work_queueのリストにWORKのリストを追加する */
 	list_add_tail(&w->list, &q->q);
 	/* セマフォ解放(セマフォ待ちプロセスの起床) */
 	up(&q->s); /* within the spinlock,
@@ -2319,18 +2319,21 @@ static inline int drbd_send_short_cmd(struct drbd_conf *mdev,
 	enum drbd_packets cmd)
 {
 	struct p_header80 h;
+	/*mdev->data.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_DATA_SOCKET, cmd, &h, sizeof(h));
 }
-
+/* mdev->meta.socketを使ってP_PINGメッセージを送信する */
 static inline int drbd_send_ping(struct drbd_conf *mdev)
 {
 	struct p_header80 h;
+	/*mdev->meta.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_META_SOCKET, P_PING, &h, sizeof(h));
 }
-
+/* mdev->meta.socketを使ってP_PING_ACKメッセージを送信する */
 static inline int drbd_send_ping_ack(struct drbd_conf *mdev)
 {
 	struct p_header80 h;
+	/*mdev->meta.socketを利用してメッセージを送信 */
 	return drbd_send_cmd(mdev, USE_META_SOCKET, P_PING_ACK, &h, sizeof(h));
 }
 

@@ -155,7 +155,7 @@ static void queue_barrier(struct drbd_conf *mdev)
 		return;
 
 	b = mdev->newest_tle;
-	b->w.cb = w_send_barrier;
+	b->w.cb = w_send_barrier;				/* コールバックのセット */
 	/* inc_ap_pending done here, so we won't
 	 * get imbalanced on connection loss.
 	 * dec_ap_pending will be done in got_BarrierAck
@@ -568,7 +568,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		req->rq_state |= RQ_NET_QUEUED;
 		req->w.cb = (req->rq_state & RQ_LOCAL_MASK)
 			? w_read_retry_remote
-			: w_send_read_req;
+			: w_send_read_req;							/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
@@ -611,7 +611,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		/* queue work item to send data */
 		D_ASSERT(req->rq_state & RQ_NET_PENDING);
 		req->rq_state |= RQ_NET_QUEUED;
-		req->w.cb =  w_send_dblock;
+		req->w.cb =  w_send_dblock;					/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 
@@ -623,7 +623,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 
 	case queue_for_send_oos:
 		req->rq_state |= RQ_NET_QUEUED;
-		req->w.cb =  w_send_oos;
+		req->w.cb =  w_send_oos;					/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
@@ -748,7 +748,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 			rv = MR_WRITE;
 
 		get_ldev(mdev);
-		req->w.cb = w_restart_disk_io;
+		req->w.cb = w_restart_disk_io;					/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
@@ -765,6 +765,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		   Trowing them out of the TL here by pretending we got a BARRIER_ACK
 		   We ensure that the peer was not rebooted */
 		if (!(req->rq_state & RQ_NET_OK)) {
+			/* req->wのコールバックがセットされている？ */
 			if (req->w.cb) {
 				/* data.workのsセマフォを待つプロセスの起床 */
 				drbd_queue_work(&mdev->data.work, &req->w);
@@ -1100,6 +1101,7 @@ allocate_barrier:
 
 	/* no point in adding empty flushes to the transfer log,
 	 * they are mapped to drbd barriers already. */
+	/* mdev->newest_tle->requestsのリストにreq->tl_requestsのリストを追加する */
 	list_add_tail(&req->tl_requests, &mdev->newest_tle->requests);
 
 	/* NOTE remote first: to get the concurrent write detection right,

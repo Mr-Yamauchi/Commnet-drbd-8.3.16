@@ -2843,7 +2843,7 @@ int v08_move_internal_md_after_resize(struct format *cfg)
 
 	return err;
 }
-
+/* metadata作成処理本体 */
 int meta_create_md(struct format *cfg, char **argv __attribute((unused)), int argc)
 {
 	int err = 0;
@@ -3281,7 +3281,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "command missing\n");
 		exit(20);
 	}
-
+	/* cmdsテーブルから実行コマンドテーブルを決定 */
 	for (i = 0; i < ARRY_SIZE(cmds); i++) {
 		if (!strcmp(cmds[i].name, argv[ai])) {
 			command = cmds + i;
@@ -3315,7 +3315,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "The --peer-max-bio-size option is only allowed with create-md\n");
 		exit(10);
 	}
-
+	/* cmdsテーブルの処理を実行 */
 	return command->function(cfg, argv + ai, argc - ai);
 	/* and if we want an explicit free,
 	 * this would be the place for it.
