@@ -1280,6 +1280,7 @@ next_bio:
 	}
 	/* > e->sector, unless this is the first bio */
 	bio->bi_sector = sector;
+	/* 要求bioの宛先をbacking_bdev(diskリソースの設定されたデバイスに)に変更する */
 	bio->bi_bdev = mdev->ldev->backing_bdev;
 	/* we special case some flags in the multi-bio case, see below
 	 * (REQ_UNPLUG, REQ_FLUSH, or BIO_RW_BARRIER in older kernels) */
@@ -2266,7 +2267,7 @@ bool drbd_rs_c_min_rate_throttle(struct drbd_conf *mdev)
 	}
 	return false;
 }
-
+/* リクエスト受信処理 */
 STATIC int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int digest_size)
 {
 	sector_t sector;
@@ -2297,7 +2298,7 @@ STATIC int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 		case P_DATA_REQUEST:
 			drbd_send_ack_rp(mdev, P_NEG_DREPLY, p);
 			break;
-		case P_RS_DATA_REQUEST:
+		case P_RS_DATA_REQUEST:		/* データブロックRESYNC要求 */
 		case P_CSUM_RS_REQUEST:
 		case P_OV_REQUEST:
 			drbd_send_ack_rp(mdev, P_NEG_RS_DREPLY , p);
@@ -2335,7 +2336,7 @@ STATIC int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 		/* application IO, don't drbd_rs_begin_io */
 		goto submit;
 
-	case P_RS_DATA_REQUEST:
+	case P_RS_DATA_REQUEST:				/* データブロックRESYNC要求 */
 		e->w.cb = w_e_end_rsdata_req;	/* コールバックのセット */
 		fault_type = DRBD_FAULT_RS_RD;
 		/* used in the sector offset progress display */
@@ -4028,8 +4029,8 @@ static struct data_cmd drbd_cmd_handler[] = {
 	[P_BITMAP]	    = { 1, sizeof(struct p_header80), receive_bitmap } ,
 	[P_COMPRESSED_BITMAP] = { 1, sizeof(struct p_header80), receive_bitmap } ,
 	[P_UNPLUG_REMOTE]   = { 0, sizeof(struct p_header80), receive_UnplugRemote },
-	[P_DATA_REQUEST]    = { 0, sizeof(struct p_block_req), receive_DataRequest },
-	[P_RS_DATA_REQUEST] = { 0, sizeof(struct p_block_req), receive_DataRequest },
+	[P_DATA_REQUEST]    = { 0, sizeof(struct p_block_req), receive_DataRequest },	/* リクエスト受信処理 */
+	[P_RS_DATA_REQUEST] = { 0, sizeof(struct p_block_req), receive_DataRequest },	/* リクエスト受信処理-データブロックRESYNC要求*/
 	[P_SYNC_PARAM]	    = { 1, sizeof(struct p_header80), receive_SyncParam },
 	[P_SYNC_PARAM89]    = { 1, sizeof(struct p_header80), receive_SyncParam },
 	[P_PROTOCOL]        = { 1, sizeof(struct p_protocol), receive_protocol },
@@ -4038,9 +4039,9 @@ static struct data_cmd drbd_cmd_handler[] = {
 	[P_STATE]	    = { 0, sizeof(struct p_state), receive_state },
 	[P_STATE_CHG_REQ]   = { 0, sizeof(struct p_req_state), receive_req_state },
 	[P_SYNC_UUID]       = { 0, sizeof(struct p_rs_uuid), receive_sync_uuid },
-	[P_OV_REQUEST]      = { 0, sizeof(struct p_block_req), receive_DataRequest },
-	[P_OV_REPLY]        = { 1, sizeof(struct p_block_req), receive_DataRequest },
-	[P_CSUM_RS_REQUEST] = { 1, sizeof(struct p_block_req), receive_DataRequest },
+	[P_OV_REQUEST]      = { 0, sizeof(struct p_block_req), receive_DataRequest },	/* リクエスト受信処理 */
+	[P_OV_REPLY]        = { 1, sizeof(struct p_block_req), receive_DataRequest },	/* リクエスト受信処理 */
+	[P_CSUM_RS_REQUEST] = { 1, sizeof(struct p_block_req), receive_DataRequest },	/* リクエスト受信処理 */
 	[P_DELAY_PROBE]     = { 0, sizeof(struct p_delay_probe93), receive_skip },
 	[P_OUT_OF_SYNC]     = { 0, sizeof(struct p_block_desc), receive_out_of_sync },
 	/* anything missing from this table is in

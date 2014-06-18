@@ -160,6 +160,7 @@ void cn_queue_del_callback(struct cn_queue_dev *dev, struct cb_id *id)
 
 	if (found) {
 		cn_queue_free_callback(cbq);
+		/* refcntの参照カウントをチェック：０ならTRUE、その他はFALSE */
 		atomic_dec_and_test(&dev->refcnt);
 	}
 }

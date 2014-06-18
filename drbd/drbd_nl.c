@@ -1012,7 +1012,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 			goto fail;
 		}
 	}
-	/* リソースのdiskオープン */
+	/* リソースdiskのブロックデバイスのオープン */
 	bdev = blkdev_get_by_path(nbc->dc.backing_dev,
 				  FMODE_READ | FMODE_WRITE | FMODE_EXCL, mdev);
 	if (IS_ERR(bdev)) {
@@ -1031,7 +1031,7 @@ STATIC int drbd_nl_disk_conf(struct drbd_conf *mdev, struct drbd_nl_cfg_req *nlp
 	 * should check it for you already; but if you don't, or
 	 * someone fooled it, we need to double check here)
 	 */
-	/* リソースのmeta-diskオープン(internalの場合は、diskと同じ) */
+	/* リソースmeta-diskのブロックデバイスオープン(internalの場合は、diskと同じ) */
 	bdev = blkdev_get_by_path(nbc->dc.meta_dev,
 				  FMODE_READ | FMODE_WRITE | FMODE_EXCL,
 				  (nbc->dc.meta_dev_idx < 0) ?

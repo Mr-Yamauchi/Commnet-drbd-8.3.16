@@ -238,6 +238,7 @@ BIO_ENDIO_TYPE drbd_endio_sec BIO_ENDIO_ARGS(struct bio *bio, int error)
 
 	trace_drbd_bio(mdev, "Sec", bio, 1, NULL);
 	bio_put(bio); /* no need for the bio anymore */
+	/* pending_biosの参照カウントをチェック：０ならTRUE、その他はFALSE */
 	if (atomic_dec_and_test(&e->pending_bios)) {
 		if (is_write)
 			drbd_endio_write_sec_final(e);
@@ -492,7 +493,7 @@ int w_resync_timer(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 		w_make_ov_request(mdev, w, cancel);
 		break;
 	case C_SYNC_TARGET:
-		w_make_resync_request(mdev, w, cancel);
+		w_make_resync_request(mdev, w, cancel);	/* データブロック RESYNC要求処理 */
 		break;
 	}
 
@@ -613,7 +614,7 @@ STATIC int drbd_rs_number_requests(struct drbd_conf *mdev)
 
 	return number;
 }
-
+/* データブロック RESYNC要求処理 */
 STATIC int w_make_resync_request(struct drbd_conf *mdev,
 				 struct drbd_work *w, int cancel)
 {
@@ -748,6 +749,7 @@ next_sector:
 			}
 		} else {
 			inc_rs_pending(mdev);
+			/* データブロックRESYNCリクエスト送信 */
 			if (!drbd_send_drequest(mdev, P_RS_DATA_REQUEST,
 					       sector, size, ID_SYNCER)) {
 				dev_err(DEV, "drbd_send_drequest() failed, aborting...\n");
@@ -1459,6 +1461,7 @@ int w_restart_disk_io(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 	   that made it into the TL are already active */
 	/* drbd_request内にmaster_bioの複製をセット */
 	drbd_req_make_private_bio(req, req->master_bio);
+	/* 要求bioの宛先をbacking_bdev(diskリソースの設定されたデバイスに)に変更する */
 	req->private_bio->bi_bdev = mdev->ldev->backing_bdev;
 	/* ブロック・デバイスのI / O要求の発行 */
 	generic_make_request(req->private_bio);
@@ -1816,7 +1819,7 @@ int drbd_worker(struct drbd_thread *thi)
 		/* 取り出したデータはリストから削除 */
 		list_del_init(&w->list);
 		spin_unlock_irq(&mdev->data.work.q_lock);
-		/* 取り出したリストデータの作業コールバックを実行する */
+		/* -----取り出したリストデータの作業コールバックを実行する----- */
 		if (!w->cb(mdev, w, mdev->state.conn < C_CONNECTED)) {
 			/* dev_warn(DEV, "worker: a callback failed! \n"); */
 			if (mdev->state.conn >= C_CONNECTED)

@@ -891,13 +891,13 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 	union drbd_state s;
 
 	/* allocate outside of all locks; */
-	req = drbd_req_new(mdev, bio);		/* struct drbd_requestの生成(reqへのbio複製の生成とセット) */
+	req = drbd_req_new(mdev, bio);		/* struct drbd_requestの生成(req->private_bioへbio複製セット) */
 	if (!req) {
 		dec_ap_bio(mdev);
 		/* only pass the error to the upper layers.
 		 * if user cannot handle io errors, that's not our business. */
 		dev_err(DEV, "could not kmalloc() req\n");
-		/* I/O完了ハンドラの実行 */
+		/* I/O完了ハンドラの実行(エラー) */
 		bio_endio(bio, -ENOMEM);
 		return 0;
 	}
@@ -931,6 +931,7 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 				 * it, then continue locally.
 				 * Or just issue the request remotely.
 				 */
+				/* ローカル読みこみ不可 */
 				local = 0;
 				/* 生成したdrbd_requestに複製したbioの解放 */
 				bio_put(req->private_bio);
@@ -964,7 +965,7 @@ STATIC int drbd_make_request_common(struct drbd_conf *mdev, struct bio *bio, uns
 	 * flush data for pending writes which are already in there. */
 	if (rw == WRITE && local && size
 	&& !drbd_test_flag(mdev, AL_SUSPENDED)) {
-		req->rq_state |= RQ_IN_ACT_LOG;
+		req->rq_state |= RQ_IN_ACT_LOG;			/* アクティビティログのフラグセット */
 		drbd_al_begin_io(mdev, sector);
 	}
 
@@ -1135,6 +1136,7 @@ queue_barrier:
 	kfree(b); /* if someone else has beaten us to it... */
 
 	if (local) {
+		/* 要求bioの宛先をbacking_bdev(diskリソースの設定されたデバイスに)に変更する */
 		req->private_bio->bi_bdev = mdev->ldev->backing_bdev;
 
 		trace_drbd_bio(mdev, "Pri", req->private_bio, 0, NULL);
@@ -1148,13 +1150,14 @@ queue_barrier:
 			if (drbd_insert_fault(mdev,   rw == WRITE ? DRBD_FAULT_DT_WR
 						    : rw == READ  ? DRBD_FAULT_DT_RD
 						    :               DRBD_FAULT_DT_RA))
-				/* I/O完了ハンドラの実行 */
+				/* I/O完了ハンドラの実行(エラー) */
 				bio_endio(req->private_bio, -EIO);
 			else
+				/* ここで、ようやくbio(I/O要求)がdiskリソース側に渡るはず.... */
 				generic_make_request(req->private_bio);	/* ブロック・デバイスのI / O要求の発行 */
 			put_ldev(mdev);
 		} else
-			bio_endio(req->private_bio, -EIO);	/* I/O完了ハンドラの実行 */
+			bio_endio(req->private_bio, -EIO);	/* I/O完了ハンドラの実行(エラー) */
 	}
 
 	/* we need to plug ALWAYS since we possibly need to kick lo_dev.
@@ -1189,7 +1192,7 @@ fail_and_free_req:
 		put_ldev(mdev);
 	}
 	if (!ret)
-		bio_endio(bio, err);	/* I/O完了ハンドラの実行 */
+		bio_endio(bio, err);	/* I/O完了ハンドラの実行(エラー) */
 	/* 生成したreqエリアの解放 */
 	drbd_req_free(req);
 	dec_ap_bio(mdev);
@@ -1227,7 +1230,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	unsigned long start_time;
 
 	if (drbd_fail_request_early(mdev, bio_data_dir(bio) & WRITE)) {
-		/* I/O完了ハンドラの実行 */
+		/* I/O完了ハンドラの実行(エラー) */
 		bio_endio(bio, -EPERM);
 		MAKE_REQUEST_RETURN;
 	}
@@ -1238,7 +1241,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 	 * by the block layer. */
 	if (unlikely(bio->bi_rw & DRBD_REQ_HARDBARRIER)) {
 		/* bioのRW情報にDRBD_REQ_HARDBARRIERが設定されている場合はbio_endioをコールして抜ける */
-		bio_endio(bio, -EOPNOTSUPP);	/* I/O完了ハンドラの実行 */
+		bio_endio(bio, -EOPNOTSUPP);	/* I/O完了ハンドラの実行(エラー) */
 		MAKE_REQUEST_RETURN;
 	}
 	/* 開始にシステムが起動してからの総タイマー割り込み回数をセット */
@@ -1251,6 +1254,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 
 	/* to make some things easier, force alignment of requests within the
 	 * granularity of our hash tables */
+	/* 開始・終了位置を計算している模様(???) */
 	s_enr = bio->bi_sector >> HT_SHIFT;	/* bio->bi_sector : I/Oを行う領域の先頭セクタ番号をシフト */
 	e_enr = bio->bi_size ? (bio->bi_sector+(bio->bi_size>>9)-1) >> HT_SHIFT : s_enr;
 										/* bio->bi_size : I/Oの合計サイズ(Byte) */ /* 終了セクタ？ */
@@ -1259,7 +1263,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 			inc_ap_bio(mdev, 1);
 		/* 共通部 : BLOCK I/O requestキュー(bio)処理 */
 		} while (drbd_make_request_common(mdev, bio, start_time));
-		MAKE_REQUEST_RETURN;
+		MAKE_REQUEST_RETURN;	/* bio処理を抜ける */
 	}
 
 	/* can this bio be split generically?
@@ -1273,7 +1277,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 		    "(vcnt=%u,idx=%u,size=%u,sector=%llu)\n",
 		    bio->bi_vcnt, bio->bi_idx, bio->bi_size,
 		    (unsigned long long)bio->bi_sector);
-		bio_endio(bio, -EINVAL);	/* I/O完了ハンドラの実行 */
+		bio_endio(bio, -EINVAL);	/* I/O完了ハンドラの実行(エラー) */
 	} else {
 		/* This bio crosses some boundary, so we have to split it. */
 		struct bio_pair *bp;
@@ -1315,7 +1319,7 @@ MAKE_REQUEST_TYPE drbd_make_request(struct request_queue *q, struct bio *bio)
 		/* 分割エリアの解放 */
 		bio_pair_release(bp);
 	}
-	MAKE_REQUEST_RETURN;
+	MAKE_REQUEST_RETURN;/* I/O完了ハンドラの実行 */
 }
 
 /* This is called by bio_add_page().  With this function we reduce

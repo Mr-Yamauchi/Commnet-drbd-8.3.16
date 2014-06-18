@@ -276,13 +276,13 @@ static inline void drbd_generic_make_request(struct drbd_conf *mdev,
 				"bio->bi_bdev == NULL\n",
 		       mdev_to_minor(mdev));
 		dump_stack();
-		/* I/O完了ハンドラの実行 */
+		/* I/O完了ハンドラの実行(エラー) */
 		bio_endio(bio, -ENODEV);
 		return;
 	}
 
 	if (drbd_insert_fault(mdev, fault_type))
-		/* I/O完了ハンドラの実行 */
+		/* I/O完了ハンドラの実行(エラー) */
 		bio_endio(bio, -EIO);
 	else
 		generic_make_request(bio);	/* ブロック・デバイスのI/O要求の発行 */

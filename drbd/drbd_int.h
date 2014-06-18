@@ -843,15 +843,16 @@ struct drbd_work {
 };
 
 struct drbd_tl_epoch;
+/* drbd内のrequest構造 */
 struct drbd_request {
 	struct drbd_work w;
-	struct drbd_conf *mdev;
+	struct drbd_conf *mdev;		/* drbd構成情報へのポインタ */
 
 	/* if local IO is not allowed, will be NULL.
 	 * if local IO _is_ allowed, holds the locally submitted bio clone,
 	 * or, after local IO completion, the ERR_PTR(error).
 	 * see drbd_endio_pri(). */
-	struct bio *private_bio;
+	struct bio *private_bio;	/* 複製したbio */
 
 	struct hlist_node collision;
 	sector_t sector;
@@ -1083,7 +1084,7 @@ struct drbd_socket {
 	union p_polymorph sbuf;
 	union p_polymorph rbuf;
 };
-
+/* メタデータ構造 */
 struct drbd_md {
 	u64 md_offset;		/* sector offset to 'super' block */
 
@@ -1110,12 +1111,12 @@ struct drbd_md {
 #define NL_BIT(pn,pr,member)   unsigned member:1;
 #define NL_STRING(pn,pr,member,len) unsigned char member[len]; int member ## _len;
 #include <linux/drbd_nl.h>
-
+/* 下位デバイス情報 */
 struct drbd_backing_dev {
 	struct kobject kobject;
 	struct block_device *backing_bdev;	/* リソースのdiskのデバイス情報 */
 	struct block_device *md_bdev;		/* リソースのmeta-diskのデバイス情報(internalならbacking_bdevと同じ) */
-	struct drbd_md md;
+	struct drbd_md md;					/* メタデータ情報 */
 	struct disk_conf dc; /* The user provided config... */
 	sector_t known_size; /* last known size of that backing device */
 };
@@ -1145,7 +1146,7 @@ struct fifo_buffer {
 	unsigned int head_index;
 	unsigned int size;
 };
-
+/* drbd構成情報 */
 struct drbd_conf {
 #ifdef PARANOIA
 	long magic;
@@ -2388,6 +2389,7 @@ static inline void inc_ap_pending(struct drbd_conf *mdev)
 
 #define dec_ap_pending(mdev)	do {				\
 	typecheck(struct drbd_conf *, mdev);			\
+	/* ap_pending_cntの参照カウントをチェック：０ならTRUE、その他はFALSE */
 	if (atomic_dec_and_test(&mdev->ap_pending_cnt))		\
 		wake_up(&mdev->misc_wait);				/* misc_waitイベントをアップ */ \
 	ERR_IF_CNT_IS_NEGATIVE(ap_pending_cnt); } while (0)
@@ -2435,6 +2437,7 @@ static inline void inc_unacked(struct drbd_conf *mdev)
 
 static inline void put_net_conf(struct drbd_conf *mdev)
 {
+	/* net_cntの参照カウントをチェック：０ならTRUE、その他はFALSE */
 	if (atomic_dec_and_test(&mdev->net_cnt))
 		wake_up(&mdev->net_cnt_wait);
 }

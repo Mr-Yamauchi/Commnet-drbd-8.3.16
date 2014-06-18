@@ -39,7 +39,7 @@ struct __packed al_transaction {
 	u32       tr_number;
 	struct __packed {
 		u32 pos;
-		u32 extent; } updates[1 + AL_EXTENTS_PT];
+		u32 extent; } updates[1 + AL_EXTENTS_PT];	/* AL_EXTENTS_PT = 61 */
 	u32       xor_sum;
 };
 
@@ -83,7 +83,8 @@ void *drbd_md_get_buffer(struct drbd_conf *mdev)
 }
 
 void drbd_md_put_buffer(struct drbd_conf *mdev)
-{
+{	
+	/* md_io_in_useの参照カウントをチェック：０ならTRUE、その他はFALSE */
 	if (atomic_dec_and_test(&mdev->md_io_in_use))
 		wake_up(&mdev->misc_wait);			/* misc_waitイベントをアップ */
 }
@@ -121,8 +122,9 @@ STATIC int _drbd_md_sync_page_io(struct drbd_conf *mdev,
 #endif
 	mdev->md_io.done = 0;
 	mdev->md_io.error = -ENODEV;
-
+	/* bio確保 */
 	bio = bio_alloc_drbd(GFP_NOIO);
+	/* 要求bioの宛先をbacking_bdev(metadiskリソースの設定されたデバイスに)に変更する */
 	bio->bi_bdev = bdev->md_bdev;
 	bio->bi_sector = sector;
 	ok = (bio_add_page(bio, page, size, 0) == size);
@@ -163,7 +165,7 @@ STATIC int _drbd_md_sync_page_io(struct drbd_conf *mdev,
 	}
 #endif
  out:
-	bio_put(bio);
+	bio_put(bio);	/* bio解放 */
 	return ok;
 }
 

@@ -216,6 +216,7 @@ int _get_ldev_if_state(struct drbd_conf *mdev, enum drbd_disk_state mins)
 	atomic_inc(&mdev->local_cnt);
 	io_allowed = (mdev->state.disk >= mins);
 	if (!io_allowed) {
+		/* local_cntの参照カウントをチェック：０ならTRUE、その他はFALSE */
 		if (atomic_dec_and_test(&mdev->local_cnt))
 			wake_up(&mdev->misc_wait);		/* misc_waitイベントをアップ */
 	}
@@ -2782,7 +2783,7 @@ int drbd_send_ack_ex(struct drbd_conf *mdev, enum drbd_packets cmd,
 			      cpu_to_be32(blksize),
 			      cpu_to_be64(block_id));
 }
-
+/* リクエスト送信 */
 int drbd_send_drequest(struct drbd_conf *mdev, int cmd,
 		       sector_t sector, int size, u64 block_id)
 {
@@ -3937,7 +3938,7 @@ struct drbd_conf *drbd_new_device(unsigned int minor)
 	mdev->md_io_page = alloc_page(GFP_KERNEL);
 	if (!mdev->md_io_page)
 		goto out_no_io_page;
-
+	/* ビットマップの初期化 */
 	if (drbd_bm_init(mdev))
 		goto out_no_bitmap;
 	/* no need to lock access, we are still initializing this minor device. */

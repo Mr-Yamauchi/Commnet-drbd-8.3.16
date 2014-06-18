@@ -95,6 +95,7 @@
  *  so we need spin_lock_irqsave().
  *  And we need the kmap_atomic.
  */
+/* ビットマップ構造 */
 struct drbd_bitmap {
 	struct page **bm_pages;
 	spinlock_t bm_lock;
@@ -428,6 +429,7 @@ STATIC struct page **bm_realloc_pages(struct drbd_bitmap *b, unsigned long want)
  * called on driver init only. TODO call when a device is created.
  * allocates the drbd_bitmap, and stores it in mdev->bitmap.
  */
+/* ビットマップの初期化 */
 int drbd_bm_init(struct drbd_conf *mdev)
 {
 	struct drbd_bitmap *b = mdev->bitmap;
@@ -952,7 +954,7 @@ static BIO_ENDIO_TYPE bm_async_io_complete BIO_ENDIO_ARGS(struct bio *bio, int e
 		mempool_free(bio->bi_io_vec[0].bv_page, drbd_md_io_page_pool);
 
 	bio_put(bio);
-
+	/* in_flightの参照カウントをチェック：０ならTRUE、その他はFALSE */
 	if (atomic_dec_and_test(&ctx->in_flight)) {
 		ctx->done = 1;
 		/* misc_waitイベントをアップ */
@@ -993,6 +995,7 @@ STATIC void bm_page_io_async(struct bm_aio_ctx *ctx, int page_nr, int rw) __must
 		bm_store_page_idx(page, page_nr);
 	} else
 		page = b->bm_pages[page_nr];
+	/* 要求bioの宛先をbacking_bdev(metadiskリソースの設定されたデバイスに)に変更する */
 	bio->bi_bdev = mdev->ldev->md_bdev;
 	bio->bi_sector = on_disk_sector;
 	/* bio_add_page of a single page to an empty bio will always succeed,
@@ -1003,7 +1006,7 @@ STATIC void bm_page_io_async(struct bm_aio_ctx *ctx, int page_nr, int rw) __must
 
 	if (drbd_insert_fault(mdev, (rw & WRITE) ? DRBD_FAULT_MD_WR : DRBD_FAULT_MD_RD)) {
 		bio->bi_rw |= rw;
-		/* I/O完了ハンドラの実行 */
+		/* I/O完了ハンドラの実行(エラー) */
 		bio_endio(bio, -EIO);
 	} else {
 		/* ブロックI/O(bio)をRequestに変換してElevator(I/Oスケジューラ)に入れる */
@@ -1094,6 +1097,7 @@ STATIC int bm_rw(struct drbd_conf *mdev, int rw, unsigned flags, unsigned lazy_w
 	 * no need to wait.  Still, we need to put the kref associated with the
 	 * "in_flight reached zero, all done" event.
 	 */
+	/* in_flightの参照カウントをチェック：０ならTRUE、その他はFALSE */
 	if (!atomic_dec_and_test(&ctx->in_flight)) {
 		drbd_blk_run_queue(bdev_get_queue(mdev->ldev->md_bdev));
 		wait_until_done_or_force_detached(mdev, mdev->ldev, &ctx->done);
