@@ -2484,6 +2484,7 @@ static inline void put_ldev(struct drbd_conf *mdev)
 		if (mdev->state.disk == D_FAILED) {
 			/* all application IO references gone. */
 			if (!drbd_test_and_set_flag(mdev, GO_DISKLESS))
+				/* ---workerスレッドに処理を依頼---- */
 				drbd_queue_work(&mdev->data.work, &mdev->go_diskless);
 		}
 		/* misc_waitイベントをアップ */
@@ -2707,7 +2708,7 @@ static inline void dec_ap_bio(struct drbd_conf *mdev)
 
 	if (ap_bio == 0 && drbd_test_flag(mdev, BITMAP_IO)) {
 		if (!drbd_test_and_set_flag(mdev, BITMAP_IO_QUEUED))
-			drbd_queue_work(&mdev->data.work, &mdev->bm_io_work.w);
+			drbd_queue_work(&mdev->data.work, &mdev->bm_io_work.w); 		/* ---workerスレッドに処理を依頼---- */
 	}
 
 	/* this currently does wake_up for every dec_ap_bio!

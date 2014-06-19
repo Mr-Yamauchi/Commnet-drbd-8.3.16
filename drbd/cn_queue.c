@@ -58,7 +58,8 @@ static inline void msleep(unsigned int msecs)
 
 	while (timeout) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
-		timeout = schedule_timeout(timeout);
+		timeout = schedule_timeout(timeout);			/* タイムアウトありのCPUスケジューリング実行 */
+		/* --- タイムアウト後 Loop再開 --- */
 	}
 }
 

@@ -162,6 +162,7 @@ static void queue_barrier(struct drbd_conf *mdev)
 	 * or (on connection loss) in tl_clear.  */
 	inc_ap_pending(mdev);
 	/* data.workのsセマフォを待つプロセスの起床 */
+	/* ---workerスレッドに処理を依頼---- */
 	drbd_queue_work(&mdev->data.work, &b->w);
 	drbd_set_flag(mdev, CREATE_BARRIER);
 }
@@ -570,6 +571,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 			? w_read_retry_remote
 			: w_send_read_req;							/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
 
@@ -613,6 +615,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		req->rq_state |= RQ_NET_QUEUED;
 		req->w.cb =  w_send_dblock;					/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work(&mdev->data.work, &req->w);
 
 		/* close the epoch, in case it outgrew the limit */
@@ -625,6 +628,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		req->rq_state |= RQ_NET_QUEUED;
 		req->w.cb =  w_send_oos;					/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
 
@@ -750,6 +754,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 		get_ldev(mdev);
 		req->w.cb = w_restart_disk_io;					/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work(&mdev->data.work, &req->w);
 		break;
 
@@ -768,6 +773,7 @@ int __req_mod(struct drbd_request *req, enum drbd_req_event what,
 			/* req->wのコールバックがセットされている？ */
 			if (req->w.cb) {
 				/* data.workのsセマフォを待つプロセスの起床 */
+				/* ---workerスレッドに処理を依頼---- */
 				drbd_queue_work(&mdev->data.work, &req->w);
 				rv = req->rq_state & RQ_WRITE ? MR_WRITE : MR_READ;
 			}

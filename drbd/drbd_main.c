@@ -421,6 +421,7 @@ static void _tl_restart(struct drbd_conf *mdev, enum drbd_req_event what)
 					drbd_set_flag(mdev, CREATE_BARRIER);
 				}
 				/* data.workのsセマフォを待つプロセスの起床 */
+				/* ---workerスレッドに処理を依頼---- */
 				drbd_queue_work(&mdev->data.work, &b->w);
 			}
 			pn = &b->next;
@@ -1992,7 +1993,7 @@ int drbd_thread_start(struct drbd_thread *thi)
 		thi->reset_cpu_mask = 1;
 		thi->t_state = Running;
 		spin_unlock_irqrestore(&thi->t_lock, flags);
-		flush_signals(current); /* otherw. may get -ERESTARTNOINTR */
+		flush_signals(current); /* otherw. may get -ERESTARTNOINTR */	/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
 		/* 対象スレッドの生成 */
 		nt = kthread_create(drbd_thread_setup, (void *) thi,
 				    "drbd%d_%s", mdev_to_minor(mdev), me);
@@ -2108,7 +2109,7 @@ void drbd_thread_current_set_cpu(struct drbd_conf *mdev)
 	if (!thi->reset_cpu_mask)
 		return;
 	thi->reset_cpu_mask = 0;
-	set_cpus_allowed_ptr(p, mdev->cpu_mask);
+	set_cpus_allowed_ptr(p, mdev->cpu_mask);	/* currentスレッドのcpu移動(固定?) */
 }
 #endif
 
@@ -3242,7 +3243,7 @@ int drbd_send(struct drbd_conf *mdev, struct socket *sock,
 				/* dump_stack(); */
 			}
 #endif
-			flush_signals(current);
+			flush_signals(current);							/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
 			rv = 0;
 		}
 		if (rv < 0)
@@ -3346,6 +3347,7 @@ STATIC void drbd_unplug_fn(struct request_queue *q)
 			 * anyways, to detect "double queuing" ... */
 			if (list_empty(&mdev->unplug_work.list))
 				/* data.workのsセマフォを待つプロセスの起床 */
+				/* ---workerスレッドに処理を依頼---- */
 				drbd_queue_work(&mdev->data.work,
 						&mdev->unplug_work);
 		}
@@ -4589,7 +4591,7 @@ void drbd_queue_bitmap_io(struct drbd_conf *mdev,
 	if (atomic_read(&mdev->ap_bio_cnt) == 0) {
 		/* data.workのsセマフォを待つプロセスの起床 */
 		if (!drbd_test_and_set_flag(mdev, BITMAP_IO_QUEUED))
-			drbd_queue_work(&mdev->data.work, &mdev->bm_io_work.w);
+			drbd_queue_work(&mdev->data.work, &mdev->bm_io_work.w);			/* ---workerスレッドに処理を依頼---- */
 	}
 	spin_unlock_irq(&mdev->req_lock);
 }
@@ -4647,6 +4649,7 @@ STATIC void md_sync_timer_fn(unsigned long data)
 {
 	struct drbd_conf *mdev = (struct drbd_conf *) data;
 	/* data.workのsセマフォを待つプロセスの起床 */
+	/* ---workerスレッドに処理を依頼---- */
 	drbd_queue_work_front(&mdev->data.work, &mdev->md_sync_work);
 }
 

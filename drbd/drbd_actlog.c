@@ -311,8 +311,9 @@ void drbd_al_begin_io(struct drbd_conf *mdev, sector_t sector)
 		/* コールバックのセット */
 		al_work.w.cb = w_al_write_transaction;
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work_front(&mdev->data.work, &al_work.w);
-		/* al_work.eventイベント待ち */
+		/* スレッド処理完了(al_work.eventイベント)待ち */
 		wait_for_completion(&al_work.event);
 
 		mdev->al_writ_cnt++;
@@ -407,7 +408,7 @@ w_al_write_transaction(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 	 * For now, we must not write the transaction,
 	 * if we cannot write out the bitmap of the evicted extent. */
 	if (mdev->state.conn < C_CONNECTED && evicted != LC_FREE)
-		drbd_bm_write_page(mdev, al_extent_to_bm_page(evicted));
+		drbd_bm_write_page(mdev, al_extent_to_bm_page(evicted));		/* ビットマップをページに書き込む */
 
 	/* The bitmap write may have failed, causing a state change. */
 	if (mdev->state.disk < D_INCONSISTENT) {
@@ -820,6 +821,7 @@ STATIC void drbd_try_clear_on_disk_bm(struct drbd_conf *mdev, sector_t sector,
 				udw->enr = ext->lce.lc_number;
 				udw->w.cb = w_update_odbm;			/* コールバックのセット */
 				/* data.workのsセマフォを待つプロセスの起床 */
+				/* ---workerスレッドに処理を依頼---- */
 				drbd_queue_work_front(&mdev->data.work, &udw->w);
 			} else {
 				dev_warn(DEV, "Could not kmalloc an udw\n");

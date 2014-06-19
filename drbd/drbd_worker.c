@@ -128,6 +128,7 @@ void drbd_endio_read_sec_final(struct drbd_epoch_entry *e) __releases(local)
 
 	trace_drbd_ee(mdev, e, "read completed");
 	/* data.workのsセマフォを待つプロセスの起床 */
+	/* ---workerスレッドに処理を依頼---- */
 	drbd_queue_work(&mdev->data.work, &e->w);
 	put_ldev(mdev);
 }
@@ -161,6 +162,7 @@ static void drbd_endio_write_sec_final(struct drbd_epoch_entry *e) __releases(lo
 		__release(local);
 		spin_unlock_irqrestore(&mdev->req_lock, flags);
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work(&mdev->data.work, &e->w);
 		return;
 	}
@@ -505,7 +507,8 @@ void resync_timer_fn(unsigned long data)
 	struct drbd_conf *mdev = (struct drbd_conf *) data;
 	/* data.workのsセマフォを待つプロセスの起床 */
 	if (list_empty(&mdev->resync_work.list))
-		drbd_queue_work(&mdev->data.work, &mdev->resync_work);
+		drbd_queue_work(&mdev->data.work, &mdev->resync_work); 		/* ---workerスレッドに処理を依頼---- */
+
 }
 
 static void fifo_set(struct fifo_buffer *fb, int value)
@@ -836,6 +839,7 @@ void start_resync_timer_fn(unsigned long data)
 {
 	struct drbd_conf *mdev = (struct drbd_conf *) data;
 	/* data.workのsセマフォを待つプロセスの起床 */
+	/* ---workerスレッドに処理を依頼---- */
 	drbd_queue_work(&mdev->data.work, &mdev->start_resync_work);
 }
 
@@ -904,6 +908,7 @@ int drbd_resync_finished(struct drbd_conf *mdev)
 		if (w) {
 			w->cb = w_resync_finished;
 			/* data.workのsセマフォを待つプロセスの起床 */
+			/* ---workerスレッドに処理を依頼---- */
 			drbd_queue_work(&mdev->data.work, w);
 			return 1;
 		}
@@ -1756,6 +1761,7 @@ void drbd_start_resync(struct drbd_conf *mdev, enum drbd_conns side)
 	drbd_state_unlock(mdev);
 }
 /* workerスレッドの起動処理 */
+/* drbd_reconfig_start()で開始される */
 int drbd_worker(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;
@@ -1764,30 +1770,30 @@ int drbd_worker(struct drbd_thread *thi)
 	int intr = 0, i;
 
 	sprintf(current->comm, "drbd%d_worker", mdev_to_minor(mdev));
-
+/* -------- Runnnig中処理 -------------- */
 	while (get_t_state(thi) == Running) {
-		drbd_thread_current_set_cpu(mdev);
+		drbd_thread_current_set_cpu(mdev);	/* currentスレッドのcpu移動(固定?) */
 
 		if (down_trylock(&mdev->data.work.s)) {
-			/* セマフォ(data.work.s)待ちへ */
-			mutex_lock(&mdev->data.mutex);
+													/* セマフォ(data.work.s)待ちへ */
+			mutex_lock(&mdev->data.mutex);			/* Mutexロック */
 			if (mdev->data.socket && !mdev->net_conf->no_cork)
 				drbd_tcp_uncork(mdev->data.socket);	/* 送信のタイミングを制御を無効 */
-			mutex_unlock(&mdev->data.mutex);
+			mutex_unlock(&mdev->data.mutex);		/* Mutexアンロック */
 			/* 割り込み有、セマフォ(data.work.s)待ちによる事象待ち合わせ */
 			intr = down_interruptible(&mdev->data.work.s);
 
-			mutex_lock(&mdev->data.mutex);
+			mutex_lock(&mdev->data.mutex);			/* Mutexロック */
 			if (mdev->data.socket  && !mdev->net_conf->no_cork)
 				drbd_tcp_cork(mdev->data.socket);	/* 送信のタイミングを制御を有効 */
-			mutex_unlock(&mdev->data.mutex);
+			mutex_unlock(&mdev->data.mutex);		/* Mutexアンロック */
 		}
 
 		if (intr) {
 			D_ASSERT(intr == -EINTR);
-			flush_signals(current);
+			flush_signals(current);					/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
 			ERR_IF (get_t_state(thi) == Running)
-				continue;
+				continue;							/* Running状態ならcontinue */
 			break;
 		}
 
@@ -1798,8 +1804,8 @@ int drbd_worker(struct drbd_thread *thi)
 		   this...   */
 
 		w = NULL;
-		spin_lock_irq(&mdev->data.work.q_lock);
-		ERR_IF(list_empty(&mdev->data.work.q)) {
+		spin_lock_irq(&mdev->data.work.q_lock);		/* ロック */
+		ERR_IF(list_empty(&mdev->data.work.q)) {	/* mdev->data.work.qが空ならアンロックしてcontinue */
 			/* something terribly wrong in our logic.
 			 * we were able to down() the semaphore,
 			 * but the list is empty... doh.
@@ -1811,14 +1817,14 @@ int drbd_worker(struct drbd_thread *thi)
 			 *
 			 * I'll try to get away just starting over this loop.
 			 */
-			spin_unlock_irq(&mdev->data.work.q_lock);
+			spin_unlock_irq(&mdev->data.work.q_lock);	/* アンロック */
 			continue;
 		}
 		/* mdev->data.work.qのリストを取り出す */
 		w = list_entry(mdev->data.work.q.next, struct drbd_work, list);
 		/* 取り出したデータはリストから削除 */
 		list_del_init(&w->list);
-		spin_unlock_irq(&mdev->data.work.q_lock);
+		spin_unlock_irq(&mdev->data.work.q_lock);		/* アンロック */
 		/* -----取り出したリストデータの作業コールバックを実行する----- */
 		if (!w->cb(mdev, w, mdev->state.conn < C_CONNECTED)) {
 			/* dev_warn(DEV, "worker: a callback failed! \n"); */
@@ -1827,6 +1833,7 @@ int drbd_worker(struct drbd_thread *thi)
 						NS(conn, C_NETWORK_FAILURE));
 		}
 	}
+/* -------- Runnnigを抜けた後処理 -------------- */
 	D_ASSERT(drbd_test_flag(mdev, DEVICE_DYING));
 	D_ASSERT(drbd_test_flag(mdev, CONFIG_PENDING));
 	/* ローカルCPUの割り込みを禁止した上で、変数valのロックを行う。	ロック出来ない場合は、成功するまでビジーウェイトする。	ローカルCPUの割り込みを禁止することにより、資源アクセスの
@@ -1844,7 +1851,7 @@ int drbd_worker(struct drbd_thread *thi)
 			w = list_entry(work_list.next, struct drbd_work, list);
 			/* 取り出したリストを削除する */
 			list_del_init(&w->list);
-			/* 取り出したリストデータの取り出したコールバックを実行する */
+			/* -----取り出したリストデータの作業コールバックを実行する----- */
 			w->cb(mdev, w, 1);
 			i++; /* dead debugging code */
 		}

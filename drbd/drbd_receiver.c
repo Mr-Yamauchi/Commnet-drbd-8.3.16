@@ -484,7 +484,8 @@ void _drbd_wait_ee_list_empty(struct drbd_conf *mdev, struct list_head *head)
 		prepare_to_wait(&mdev->ee_wait, &wait, TASK_UNINTERRUPTIBLE);
 		spin_unlock_irq(&mdev->req_lock);
 		drbd_kick_lo(mdev);			/* アンプラグ処理の実行 */
-		schedule();
+		schedule();					/* スケジューリング */
+		/* ---- 再CPU割り当て後 ---- */
 		finish_wait(&mdev->ee_wait, &wait);
 		spin_lock_irq(&mdev->req_lock);
 	}
@@ -900,7 +901,7 @@ retry:
 		if (mdev->state.conn <= C_DISCONNECTING)
 			goto out_release_sockets;
 		if (signal_pending(current)) {
-			flush_signals(current);
+			flush_signals(current);									/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
 			smp_rmb();
 			if (get_t_state(&mdev->receiver) == Exiting)
 				goto out_release_sockets;
@@ -1187,6 +1188,7 @@ STATIC enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 			fw->w.cb = w_flush;		/* コールバックのセット */
 			fw->epoch = epoch;
 			/* data.workのsセマフォを待つプロセスの起床 */
+			/* ---workerスレッドに処理を依頼---- */
 			drbd_queue_work(&mdev->data.work, &fw->w);
 		} else {
 			dev_warn(DEV, "Could not kmalloc a flush_work obj\n");
@@ -1378,6 +1380,7 @@ int w_e_reissue(struct drbd_conf *mdev, struct drbd_work *w, int cancel) __relea
 	case -ENOMEM:
 		e->w.cb = w_e_reissue;		/* コールバックのセット */
 		/* data.workのsセマフォを待つプロセスの起床 */
+		/* ---workerスレッドに処理を依頼---- */
 		drbd_queue_work(&mdev->data.work, &e->w);
 		/* retry later; fall through */
 	case 0:
@@ -2142,7 +2145,9 @@ STATIC int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 				 * there must be none now. */
 				D_ASSERT(have_unacked == 0);
 			}
+			/* スケジューリング */
 			schedule();
+			/* ---- 再CPU割り当て後にロック --- */
 			spin_lock_irq(&mdev->req_lock);
 		}
 		finish_wait(&mdev->misc_wait, &wait);
@@ -4119,9 +4124,10 @@ void drbd_flush_workqueue(struct drbd_conf *mdev)
 	/* barr.done完了待ちイベントの生成 */
 	init_completion(&barr.done);
 	/* data.workのsセマフォを待つプロセスの起床 */
+	/* ---workerスレッドに処理を依頼---- */
 	drbd_queue_work(&mdev->data.work, &barr.w);
 	/* barr.doneイベント待ち */
-	/*	w_prev_work_done()が実行されてイベント完了さるまで待つ */
+	/* スレッド処理(w_prev_work_done()が実行されて)イベント完了されるまで待つ */
 	wait_for_completion(&barr.done);
 }
 
@@ -4892,6 +4898,7 @@ STATIC int got_OVResult(struct drbd_conf *mdev, struct p_header80 *h)
 		if (w) {
 			w->cb = w_ov_finished;
 			/* data.workのsセマフォを待つプロセスの起床 */
+			/* ---workerスレッドに処理を依頼---- */
 			drbd_queue_work_front(&mdev->data.work, w);
 		} else {
 			dev_err(DEV, "kmalloc(w) failed.");
@@ -4977,7 +4984,7 @@ int drbd_asender(struct drbd_thread *thi)
 			drbd_tcp_cork(mdev->meta.socket);		/* 送信のタイミングを制御を有効 */
 		while (1) {
 			drbd_clear_flag(mdev, SIGNAL_ASENDER);
-			flush_signals(current);
+			flush_signals(current);					/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
 			if (!drbd_process_done_ee(mdev))
 				goto reconnect;
 			/* to avoid race with newly queued ACKs */
@@ -5003,7 +5010,7 @@ int drbd_asender(struct drbd_thread *thi)
 				     buf, expect-received, 0);
 		drbd_clear_flag(mdev, SIGNAL_ASENDER);
 
-		flush_signals(current);
+		flush_signals(current);						/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
 
 		/* Note:
 		 * -EINTR	 (on meta) we got a signal
