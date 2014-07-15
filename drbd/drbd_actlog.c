@@ -148,6 +148,7 @@ STATIC int _drbd_md_sync_page_io(struct drbd_conf *mdev,
 		bio_endio(bio, -EIO);	/* I/O完了ハンドラの実行 */
 	else
 		submit_bio(rw, bio);	/* ブロックI/O(bio)をRequestに変換してElevator(I/Oスケジューラ)に入れる */
+								/* submit_bio()内でgeneric_make_request()をコール */
 	wait_until_done_or_force_detached(mdev, bdev, &mdev->md_io.done);
 	ok = bio_flagged(bio, BIO_UPTODATE) && mdev->md_io.error == 0;
 

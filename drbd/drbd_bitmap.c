@@ -133,7 +133,7 @@ static void __bm_print_lock_info(struct drbd_conf *mdev, const char *func)
 	    b->bm_task == mdev->asender.task  ? "asender"  :
 	    b->bm_task == mdev->worker.task   ? "worker"   : "?");
 }
-
+/* ビットマップ情報のロック */
 void drbd_bm_lock(struct drbd_conf *mdev, char *why, enum bm_flag flags)
 {
 	struct drbd_bitmap *b = mdev->bitmap;
@@ -164,7 +164,7 @@ void drbd_bm_lock(struct drbd_conf *mdev, char *why, enum bm_flag flags)
 	b->bm_why  = why;
 	b->bm_task = current;
 }
-
+/* ビットマップ情報のアンロック */
 void drbd_bm_unlock(struct drbd_conf *mdev)
 {
 	struct drbd_bitmap *b = mdev->bitmap;
@@ -964,7 +964,7 @@ static BIO_ENDIO_TYPE bm_async_io_complete BIO_ENDIO_ARGS(struct bio *bio, int e
 
 	BIO_ENDIO_FN_RETURN;
 }
-
+/* I/O実行 */
 STATIC void bm_page_io_async(struct bm_aio_ctx *ctx, int page_nr, int rw) __must_hold(local)
 {
 	struct bio *bio = bio_alloc_drbd(GFP_NOIO);
@@ -1010,6 +1010,7 @@ STATIC void bm_page_io_async(struct bm_aio_ctx *ctx, int page_nr, int rw) __must
 		bio_endio(bio, -EIO);
 	} else {
 		/* ブロックI/O(bio)をRequestに変換してElevator(I/Oスケジューラ)に入れる */
+		/* submit_bio()内でgeneric_make_request()をコール */
 		submit_bio(rw, bio);
 		/* this should not count as user activity and cause the
 		 * resync to throttle -- see drbd_rs_should_slow_down(). */
@@ -1084,7 +1085,7 @@ STATIC int bm_rw(struct drbd_conf *mdev, int rw, unsigned flags, unsigned lazy_w
 			}
 		}
 		atomic_inc(&ctx->in_flight);
-		bm_page_io_async(ctx, i, rw);
+		bm_page_io_async(ctx, i, rw);	/* I/O実行 */
 		++count;
 		cond_resched();
 	}
@@ -1119,7 +1120,7 @@ STATIC int bm_rw(struct drbd_conf *mdev, int rw, unsigned flags, unsigned lazy_w
 
 	now = jiffies;
 	if (rw == WRITE) {
-		drbd_md_flush(mdev);
+		drbd_md_flush(mdev);		/* フラッシュ(キャッシュ同期？) */
 	} else /* rw == READ */ {
 		b->bm_set = bm_count_bits(b);
 		dev_info(DEV, "recounting of set bits took additional %lu jiffies\n",

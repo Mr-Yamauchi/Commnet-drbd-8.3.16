@@ -421,7 +421,7 @@ int drbd_release_ee(struct drbd_conf *mdev, struct list_head *list)
 	int is_net = list == &mdev->net_ee;
 
 	spin_lock_irq(&mdev->req_lock);
-	/* 2つのリストを結合し、空になったリストを再初期化 */
+	/* 2つのリストを結合(list-->work_list)し、空になったリスト(list)を再初期化 */
 	list_splice_init(list, &work_list);
 	spin_unlock_irq(&mdev->req_lock);
 
@@ -451,7 +451,7 @@ STATIC int drbd_process_done_ee(struct drbd_conf *mdev)
 
 	spin_lock_irq(&mdev->req_lock);
 	reclaim_net_ee(mdev, &reclaimed);
-	/* 2つのリストを結合し、空になったリストを再初期化 */
+	/* 2つのリストを結合(done_ee-->work_list)し、空になったリスト(done_ee)を再初期化 */
 	list_splice_init(&mdev->done_ee, &work_list);
 	spin_unlock_irq(&mdev->req_lock);
 
@@ -549,7 +549,7 @@ STATIC int drbd_accept(struct drbd_conf *mdev, const char **what,
 out:
 	return err;
 }
-
+/* SOCKET受信待ち */
 STATIC int drbd_recv_short(struct drbd_conf *mdev, struct socket *sock,
 		    void *buf, size_t size, int flags)
 {
@@ -1275,6 +1275,7 @@ int drbd_submit_ee(struct drbd_conf *mdev, struct drbd_epoch_entry *e,
 	 * generated bio, but a bio allocated on behalf of the peer.
 	 */
 next_bio:
+	/* bioの割り当て */
 	bio = bio_alloc(GFP_NOIO, nr_pages);
 	if (!bio) {
 		dev_err(DEV, "submit_ee: Allocation of a bio failed\n");
@@ -1328,7 +1329,7 @@ next_bio:
 		if (bios)
 			bio->bi_rw &= ~DRBD_REQ_UNPLUG;
 		trace_drbd_bio(mdev, "Sec", bio, 0, NULL);
-		/* WRAPPER経由のブロック・デバイスのI / O要求の発行 */
+		/* WRAPPER経由のブロック・デバイスのI / O要求(generic_make_request)の発行 */
 		drbd_generic_make_request(mdev, fault_type, bio);
 
 		/* strip off REQ_FLUSH,
@@ -4060,7 +4061,12 @@ static struct data_cmd drbd_cmd_handler[] = {
    Usually in mdev->data.rbuf.header.head the callback can find the usual
    p_header, but they may not rely on that. Since there is also p_header95 !
  */
-/* receiver kernelスレッド本体 */
+/* receiver kernelスレッド本体(mdev->data.socket処理) */
+/*
+		1)データソケットを処理(mdev->data.socket)
+		2)単ノード起動中も起動
+*/
+
 STATIC void drbdd(struct drbd_conf *mdev)
 {
 	union p_header *header = &mdev->data.rbuf.header;
@@ -4071,7 +4077,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 	/* 処理待ちループ */
 	while (get_t_state(&mdev->receiver) == Running) {
 		drbd_thread_current_set_cpu(mdev);
-		/* ヘッダ受信待ち */
+		/* ヘッダ受信(mdev->data.socket)待ち */
 		if (!drbd_recv_header(mdev, &cmd, &packet_size))
 			goto err_out;
 
@@ -4087,7 +4093,7 @@ STATIC void drbdd(struct drbd_conf *mdev)
 		}
 
 		if (shs) {
-			/* 受信サイズの受信待ち */
+			/* 受信サイズ(mdev->data.socket)の受信待ち */
 			rv = drbd_recv(mdev, &header->h80.payload, shs);
 			if (unlikely(rv != shs)) {
 				if (!signal_pending(current))
@@ -4230,7 +4236,7 @@ STATIC void drbd_disconnect(struct drbd_conf *mdev)
 
 	/* This also does reclaim_net_ee().  If we do this too early, we might
 	 * miss some resync ee and pages.*/
-	drbd_process_done_ee(mdev);
+	drbd_process_done_ee(mdev);			/* 残っているmdev->done_eeを処理する */
 
 	kfree(mdev->p_uuid);
 	mdev->p_uuid = NULL;
@@ -4919,7 +4925,7 @@ struct asender_cmd {
 	size_t pkt_size;
 	int (*process)(struct drbd_conf *mdev, struct p_header80 *h);
 };
-
+/* asenderスレッド処理コマンド */
 static struct asender_cmd *get_asender_cmd(int cmd)
 {
 	static struct asender_cmd asender_tbl[] = {
@@ -4947,7 +4953,11 @@ static struct asender_cmd *get_asender_cmd(int cmd)
 		return NULL;
 	return &asender_tbl[cmd];
 }
-/* asender kernelスレッド本体 */
+/* asender kernelスレッド本体(mdev->meta.socket処理) */
+/*
+		1)メタデータソケットを処理(mdev->meta.socket)
+		2)単ノード起動中は停止
+*/
 int drbd_asender(struct drbd_thread *thi)
 {
 	struct drbd_conf *mdev = thi->mdev;
@@ -4958,7 +4968,7 @@ int drbd_asender(struct drbd_thread *thi)
 	int rv, len;
 	void *buf    = h;
 	int received = 0;
-	int expect   = sizeof(struct p_header80);
+	int expect   = sizeof(struct p_header80);	/* 受信必要サイズをヘッダサイズにセット */
 	int empty;
 	int ping_timeout_active = 0;
 
@@ -4971,7 +4981,8 @@ int drbd_asender(struct drbd_thread *thi)
 	while (get_t_state(thi) == Running) {
 		drbd_thread_current_set_cpu(mdev);
 		if (drbd_test_and_clear_flag(mdev, SEND_PING)) {
-			ERR_IF(!drbd_send_ping(mdev)) goto reconnect; /* mdev->meta.socketを使ってP_PINGメッセージを送信する */
+			/* mdev->meta.socketを使ってP_PINGメッセージを送信する */
+			ERR_IF(!drbd_send_ping(mdev)) goto reconnect; 
 			mdev->meta.socket->sk->sk_rcvtimeo =
 				mdev->net_conf->ping_timeo*HZ/10;
 			ping_timeout_active = 1;
@@ -4985,7 +4996,7 @@ int drbd_asender(struct drbd_thread *thi)
 		while (1) {
 			drbd_clear_flag(mdev, SIGNAL_ASENDER);
 			flush_signals(current);					/* 実行中プロセスに登録された配送待ちの全てのシグナルを解放する */
-			if (!drbd_process_done_ee(mdev))
+			if (!drbd_process_done_ee(mdev))		/* 残っているmdev->done_eeを処理する */
 				goto reconnect;
 			/* to avoid race with newly queued ACKs */
 			drbd_set_flag(mdev, SIGNAL_ASENDER);
@@ -4996,7 +5007,7 @@ int drbd_asender(struct drbd_thread *thi)
 			 * but then there is also a signal pending,
 			 * and we start over... */
 			if (empty)
-				break;
+				break;	/* mdev->done_eeが空になったらwhileをブレーク */
 		}
 		/* but unconditionally uncork unless disabled */
 		if (!mdev->net_conf->no_cork)
@@ -5005,7 +5016,7 @@ int drbd_asender(struct drbd_thread *thi)
 		/* short circuit, recv_msg would return EINTR anyways. */
 		if (signal_pending(current))
 			continue;
-
+		/* mdev->meta.socket受信待ち */
 		rv = drbd_recv_short(mdev, mdev->meta.socket,
 				     buf, expect-received, 0);
 		drbd_clear_flag(mdev, SIGNAL_ASENDER);
@@ -5023,7 +5034,7 @@ int drbd_asender(struct drbd_thread *thi)
 		 * rv == 0	 : "connection shut down by peer"
 		 */
 		if (likely(rv > 0)) {
-			received += rv;
+			received += rv;	/* 受信サイズの更新 */
 			buf	 += rv;
 		} else if (rv == 0) {
 			if (drbd_test_flag(mdev, DISCONNECT_SENT)) {
@@ -5054,7 +5065,7 @@ int drbd_asender(struct drbd_thread *thi)
 			dev_err(DEV, "sock_recvmsg returned %d\n", rv);
 			goto reconnect;
 		}
-
+		/* mdev->meta.socket受信完了 */
 		if (received == expect && cmd == NULL) {
 			if (unlikely(h->magic != BE_DRBD_MAGIC)) {
 				dev_err(DEV, "magic?? on meta m: 0x%08x c: %d l: %d\n",
@@ -5063,6 +5074,7 @@ int drbd_asender(struct drbd_thread *thi)
 				    be16_to_cpu(h->length));
 				goto reconnect;
 			}
+			/* asenderスレッドの実行コマンド処理の決定 */
 			cmd = get_asender_cmd(be16_to_cpu(h->command));
 			len = be16_to_cpu(h->length);
 			if (unlikely(cmd == NULL)) {
@@ -5079,11 +5091,11 @@ int drbd_asender(struct drbd_thread *thi)
 				goto reconnect;
 			}
 		}
-		if (received == expect) {
+		if (received == expect) {	/* ヘッダサイズを受信したら実行コマンドを実行 */
 			mdev->last_received = jiffies;
 			D_ASSERT(cmd != NULL);
 			trace_drbd_packet(mdev, mdev->meta.socket, 1, (void *)h, __FILE__, __LINE__);
-			/* asender処理実行 */
+			/* asenderの実行コマンド処理実行 */
 			if (!cmd->process(mdev, h))
 				goto reconnect;
 
@@ -5091,7 +5103,7 @@ int drbd_asender(struct drbd_thread *thi)
 			 * has been restored in got_PingAck() */
 			if (cmd == get_asender_cmd(P_PING_ACK))
 				ping_timeout_active = 0;
-
+			/* 受信サイズ、必要サイズの初期化、コマンドのNULL初期化 */
 			buf	 = h;
 			received = 0;
 			expect	 = sizeof(struct p_header80);

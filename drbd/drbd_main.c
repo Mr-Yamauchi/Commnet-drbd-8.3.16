@@ -355,7 +355,7 @@ void tl_release(struct drbd_conf *mdev, unsigned int barrier_nr,
 	   These have been list_move'd to the out_of_sequence_requests list in
 	   _req_mod(, barrier_acked) above.
 	   */
-	/* 2つのリストを結合し、空になったリストを再初期化 */
+	/* 2つのリストを結合(requests-->barrier_acked_requests)し、空になったリスト(requests)を再初期化 */
 	list_splice_init(&b->requests, &mdev->barrier_acked_requests);
 
 	nob = b->next;
@@ -2054,7 +2054,7 @@ void _drbd_thread_stop(struct drbd_thread *thi, int restart, int wait)
 		/* thi->stop完了待ちイベントの生成 */
 		init_completion(&thi->stop);
 		if (thi->task != current)
-			force_sig(DRBD_SIGKILL, thi->task);
+			force_sig(DRBD_SIGKILL, thi->task);	/* DRBD_SIKILLシグナルをスレッドに送る */
 	}
 	spin_unlock_irqrestore(&thi->t_lock, flags);
 

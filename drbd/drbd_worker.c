@@ -1841,7 +1841,7 @@ int drbd_worker(struct drbd_thread *thi)
 	spin_lock_irq(&mdev->data.work.q_lock);
 	i = 0;
 	while (!list_empty(&mdev->data.work.q)) {
-		/* 2つのリストを結合し、空になったリストを再初期化 */
+		/* 2つのリスト(data.work.q-->work_listへ)を結合し、空になったリスト(data.work.q)を再初期化 */
 		list_splice_init(&mdev->data.work.q, &work_list);
 		/* 変数valのロック解除し、ローカルCPUの割り込み状態をflagsに示された値にする */
 		spin_unlock_irq(&mdev->data.work.q_lock);

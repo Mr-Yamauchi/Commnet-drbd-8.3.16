@@ -1157,7 +1157,7 @@ struct drbd_conf {
 	/* configured by drbdsetup */
 	struct net_conf *net_conf; /* protected by get_net_conf() and put_net_conf() */
 	struct syncer_conf sync_conf;
-	struct drbd_backing_dev *ldev __protected_by(local);
+	struct drbd_backing_dev *ldev __protected_by(local);	/* 下位デバイス情報 */
 
 	sector_t p_size;     /* partner's disk size */
 	struct request_queue *rq_queue;		/* ブロックデバイスキュー */
@@ -2307,7 +2307,7 @@ drbd_queue_work(struct drbd_work_queue *q, struct drbd_work *w)
 static inline void wake_asender(struct drbd_conf *mdev)
 {
 	if (drbd_test_flag(mdev, SIGNAL_ASENDER))
-		force_sig(DRBD_SIG, mdev->asender.task);
+		force_sig(DRBD_SIG, mdev->asender.task);	/* DRBD_SIGシグナルをasenderスレッドに送る */
 }
 
 static inline void request_ping(struct drbd_conf *mdev)
