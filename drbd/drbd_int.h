@@ -2804,7 +2804,7 @@ static inline void drbd_md_flush(struct drbd_conf *mdev)
 
 	if (drbd_test_flag(mdev, MD_NO_BARRIER))
 		return;
-
+	/* ƒLƒƒƒbƒVƒ…‚Ì“¯Šúˆ— */
 	r = blkdev_issue_flush(mdev->ldev->md_bdev, GFP_NOIO, NULL);
 	if (r) {
 		drbd_set_flag(mdev, MD_NO_BARRIER);

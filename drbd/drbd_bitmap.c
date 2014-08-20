@@ -1120,7 +1120,7 @@ STATIC int bm_rw(struct drbd_conf *mdev, int rw, unsigned flags, unsigned lazy_w
 
 	now = jiffies;
 	if (rw == WRITE) {
-		drbd_md_flush(mdev);		/* フラッシュ(キャッシュ同期？) */
+		drbd_md_flush(mdev);		/* フラッシュ(キャッシュ同期) */
 	} else /* rw == READ */ {
 		b->bm_set = bm_count_bits(b);
 		dev_info(DEV, "recounting of set bits took additional %lu jiffies\n",
